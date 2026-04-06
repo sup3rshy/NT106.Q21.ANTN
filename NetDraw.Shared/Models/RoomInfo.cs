@@ -55,3 +55,54 @@ public class AiResultPayload
     [JsonProperty("actions")]
     public List<DrawAction> Actions { get; set; } = new();
 }
+
+public class CursorData
+{
+    [JsonProperty("x")]
+    public double X { get; set; }
+
+    [JsonProperty("y")]
+    public double Y { get; set; }
+}
+
+public class MoveObjectPayload
+{
+    [JsonProperty("actionId")]
+    public string ActionId { get; set; } = string.Empty;
+
+    [JsonProperty("deltaX")]
+    public double DeltaX { get; set; }
+
+    [JsonProperty("deltaY")]
+    public double DeltaY { get; set; }
+}
+
+public class DeleteObjectPayload
+{
+    [JsonProperty("actionId")]
+    public string ActionId { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// File format cho Save/Load bản vẽ
+/// </summary>
+public class DrawingFile
+{
+    [JsonProperty("version")]
+    public string Version { get; set; } = "1.0";
+
+    [JsonProperty("appName")]
+    public string AppName { get; set; } = "NetDraw";
+
+    [JsonProperty("createdAt")]
+    public string CreatedAt { get; set; } = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+
+    [JsonProperty("canvasWidth")]
+    public double CanvasWidth { get; set; } = 800;
+
+    [JsonProperty("canvasHeight")]
+    public double CanvasHeight { get; set; } = 600;
+
+    [JsonProperty("actions")]
+    public List<DrawAction> Actions { get; set; } = new();
+}

@@ -34,3 +34,4 @@ D:\NT106.Q21.ANTN\NetDraw.Shared\obj\Debug\net8.0\NetDraw.Shared.dll
 D:\NT106.Q21.ANTN\NetDraw.Shared\obj\Debug\net8.0\refint\NetDraw.Shared.dll
 D:\NT106.Q21.ANTN\NetDraw.Shared\obj\Debug\net8.0\NetDraw.Shared.pdb
 D:\NT106.Q21.ANTN\NetDraw.Shared\obj\Debug\net8.0\ref\NetDraw.Shared.dll
+D:\NT106.Q21.ANTN\NetDraw.Shared\obj\Debug\net8.0\NetDraw.Shared.sourcelink.json

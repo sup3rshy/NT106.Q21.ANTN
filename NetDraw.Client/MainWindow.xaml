@@ -4,21 +4,37 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="NetDraw - Vẽ chung qua mạng" Height="750" Width="1200"
-        MinHeight="600" MinWidth="900"
+        Title="NetDraw - Vẽ chung qua mạng" Height="750" Width="1280"
+        MinHeight="600" MinWidth="960"
         WindowStartupLocation="CenterScreen"
         Background="#1E1E2E">
     <Window.Resources>
-        <!-- Button Style -->
         <Style x:Key="ToolBtn" TargetType="Button">
-            <Setter Property="Width" Value="40"/>
-            <Setter Property="Height" Value="40"/>
+            <Setter Property="Height" Value="32"/>
             <Setter Property="Margin" Value="2"/>
+            <Setter Property="Padding" Value="6,2"/>
             <Setter Property="Background" Value="#313244"/>
             <Setter Property="Foreground" Value="#CDD6F4"/>
             <Setter Property="BorderBrush" Value="#45475A"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#45475A"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="SmallToolBtn" TargetType="Button">
+            <Setter Property="Width" Value="32"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Margin" Value="1"/>
+            <Setter Property="Background" Value="#313244"/>
+            <Setter Property="Foreground" Value="#CDD6F4"/>
+            <Setter Property="BorderBrush" Value="#45475A"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="14"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
@@ -27,122 +43,232 @@
             </Style.Triggers>
         </Style>
         <Style x:Key="ColorBtn" TargetType="Button">
-            <Setter Property="Width" Value="28"/>
-            <Setter Property="Height" Value="28"/>
-            <Setter Property="Margin" Value="2"/>
+            <Setter Property="Width" Value="26"/>
+            <Setter Property="Height" Value="26"/>
+            <Setter Property="Margin" Value="1"/>
             <Setter Property="BorderBrush" Value="#45475A"/>
             <Setter Property="BorderThickness" Value="2"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="BorderBrush" Value="#CDD6F4"/>
+                    <Setter Property="BorderBrush" Value="#FFFFFF"/>
                 </Trigger>
             </Style.Triggers>
+        </Style>
+        <Style x:Key="SectionLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#6C7086"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0,6,0,3"/>
+            <Setter Property="TextAlignment" Value="Center"/>
         </Style>
     </Window.Resources>
 
     <Grid>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="60"/>     <!-- Toolbar -->
+            <ColumnDefinition Width="140"/>     <!-- Toolbar wider -->
             <ColumnDefinition Width="*"/>       <!-- Canvas -->
-            <ColumnDefinition Width="280"/>     <!-- Sidebar -->
+            <ColumnDefinition Width="260"/>     <!-- Sidebar -->
         </Grid.ColumnDefinitions>
 
         <!-- === TOOLBAR (Left) === -->
         <Border Grid.Column="0" Background="#181825" BorderBrush="#313244" BorderThickness="0,0,1,0">
-            <StackPanel Margin="8,10">
-                <TextBlock Text="Tools" Foreground="#A6ADC8" FontSize="10" HorizontalAlignment="Center" Margin="0,0,0,5"/>
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="6,8,6,8">
 
-                <Button x:Name="BtnPen" Style="{StaticResource ToolBtn}" Content="✏" ToolTip="Bút vẽ (P)" Click="BtnPen_Click"/>
-                <Button x:Name="BtnLine" Style="{StaticResource ToolBtn}" Content="╱" ToolTip="Đường thẳng (L)" Click="BtnLine_Click"/>
-                <Button x:Name="BtnRect" Style="{StaticResource ToolBtn}" Content="▭" ToolTip="Hình chữ nhật (R)" Click="BtnRect_Click"/>
-                <Button x:Name="BtnCircle" Style="{StaticResource ToolBtn}" Content="○" ToolTip="Hình tròn (C)" Click="BtnCircle_Click"/>
-                <Button x:Name="BtnEllipse" Style="{StaticResource ToolBtn}" Content="⬭" ToolTip="Hình elip (E)" Click="BtnEllipse_Click"/>
-                <Button x:Name="BtnTriangle" Style="{StaticResource ToolBtn}" Content="△" ToolTip="Tam giác (T)" Click="BtnTriangle_Click"/>
-                <Button x:Name="BtnText" Style="{StaticResource ToolBtn}" Content="A" ToolTip="Chèn text" Click="BtnText_Click"/>
-                <Button x:Name="BtnEraser" Style="{StaticResource ToolBtn}" Content="⌫" ToolTip="Tẩy (X)" Click="BtnEraser_Click"/>
+                    <!-- Draw Tools -->
+                    <TextBlock Text="CÔNG CỤ" Style="{StaticResource SectionLabel}"/>
+                    <Button x:Name="BtnSelect" Style="{StaticResource ToolBtn}" Click="BtnSelect_Click" ToolTip="V">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="⊡" Width="20" TextAlignment="Center"/><TextBlock Text="Chọn"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnPen" Style="{StaticResource ToolBtn}" Click="BtnPen_Click" ToolTip="P">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="✏" Width="20" TextAlignment="Center"/><TextBlock Text="Bút vẽ"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnLine" Style="{StaticResource ToolBtn}" Click="BtnLine_Click" ToolTip="L">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="╱" Width="20" TextAlignment="Center"/><TextBlock Text="Đường thẳng"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnArrow" Style="{StaticResource ToolBtn}" Click="BtnArrow_Click" ToolTip="A">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="→" Width="20" TextAlignment="Center"/><TextBlock Text="Mũi tên"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnRect" Style="{StaticResource ToolBtn}" Click="BtnRect_Click" ToolTip="R">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="▭" Width="20" TextAlignment="Center"/><TextBlock Text="Chữ nhật"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnCircle" Style="{StaticResource ToolBtn}" Click="BtnCircle_Click" ToolTip="C">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="○" Width="20" TextAlignment="Center"/><TextBlock Text="Hình tròn"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnEllipse" Style="{StaticResource ToolBtn}" Click="BtnEllipse_Click" ToolTip="E">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="⬭" Width="20" TextAlignment="Center"/><TextBlock Text="Elip"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnTriangle" Style="{StaticResource ToolBtn}" Click="BtnTriangle_Click" ToolTip="T">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="△" Width="20" TextAlignment="Center"/><TextBlock Text="Tam giác"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnStar" Style="{StaticResource ToolBtn}" Click="BtnStar_Click">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="☆" Width="20" TextAlignment="Center"/><TextBlock Text="Ngôi sao"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnText" Style="{StaticResource ToolBtn}" Click="BtnText_Click">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="A" Width="20" TextAlignment="Center" FontWeight="Bold"/><TextBlock Text="Chèn text"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnCalligraphy" Style="{StaticResource ToolBtn}" Click="BtnCalligraphy_Click">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="🖋" Width="20" TextAlignment="Center"/><TextBlock Text="Thư pháp"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnHighlighter" Style="{StaticResource ToolBtn}" Click="BtnHighlighter_Click" ToolTip="H">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="🖍" Width="20" TextAlignment="Center"/><TextBlock Text="Highlight"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnSpray" Style="{StaticResource ToolBtn}" Click="BtnSpray_Click">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="💨" Width="20" TextAlignment="Center"/><TextBlock Text="Phun sơn"/></StackPanel>
+                    </Button>
+                    <Button x:Name="BtnEraser" Style="{StaticResource ToolBtn}" Click="BtnEraser_Click" ToolTip="X">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="⌫" Width="20" TextAlignment="Center"/><TextBlock Text="Tẩy"/></StackPanel>
+                    </Button>
 
-                <Separator Background="#45475A" Margin="0,8"/>
+                    <!-- Stroke Settings -->
+                    <TextBlock Text="NÉT VẼ" Style="{StaticResource SectionLabel}"/>
+                    <Grid Margin="0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="28"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Size" Foreground="#A6ADC8" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <Slider x:Name="SliderSize" Grid.Column="1" Minimum="1" Maximum="30" Value="2" VerticalAlignment="Center"
+                                ValueChanged="SliderSize_ValueChanged"/>
+                        <TextBlock x:Name="TxtSize" Grid.Column="2" Text="2" Foreground="#CDD6F4" FontSize="11" VerticalAlignment="Center" TextAlignment="Right"/>
+                    </Grid>
+                    <Grid Margin="0,2">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="28"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Opacity" Foreground="#A6ADC8" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <Slider x:Name="SliderOpacity" Grid.Column="1" Minimum="0.1" Maximum="1.0" Value="1.0" VerticalAlignment="Center"
+                                ValueChanged="SliderOpacity_ValueChanged"/>
+                        <TextBlock x:Name="TxtOpacity" Grid.Column="2" Text="100%" Foreground="#CDD6F4" FontSize="10" VerticalAlignment="Center" TextAlignment="Right"/>
+                    </Grid>
+                    <Grid Margin="0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Style" Foreground="#A6ADC8" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox x:Name="CmbDash" Grid.Column="1" FontSize="11" SelectedIndex="0" SelectionChanged="CmbDash_SelectionChanged"
+                                  Background="#313244" Foreground="#CDD6F4">
+                            <ComboBoxItem Content="━━ Nét liền"/>
+                            <ComboBoxItem Content="╌╌ Nét đứt"/>
+                            <ComboBoxItem Content="···· Nét chấm"/>
+                        </ComboBox>
+                    </Grid>
+                    <CheckBox x:Name="ChkFill" Content="Tô màu nền (Fill)" Foreground="#CDD6F4" FontSize="11" Margin="0,4"/>
 
-                <TextBlock Text="Size" Foreground="#A6ADC8" FontSize="10" HorizontalAlignment="Center" Margin="0,0,0,3"/>
-                <Slider x:Name="SliderSize" Minimum="1" Maximum="30" Value="2" Orientation="Vertical" Height="80" HorizontalAlignment="Center"
-                        ValueChanged="SliderSize_ValueChanged"/>
-                <TextBlock x:Name="TxtSize" Text="2" Foreground="#CDD6F4" FontSize="10" HorizontalAlignment="Center"/>
-
-                <Separator Background="#45475A" Margin="0,8"/>
-
-                <CheckBox x:Name="ChkFill" Content="Fill" Foreground="#CDD6F4" HorizontalAlignment="Center" FontSize="10"/>
-
-                <Separator Background="#45475A" Margin="0,8"/>
-
-                <Button Style="{StaticResource ToolBtn}" Content="↩" ToolTip="Undo (Ctrl+Z)" Click="BtnUndo_Click"/>
-                <Button Style="{StaticResource ToolBtn}" Content="↪" ToolTip="Redo (Ctrl+Y)" Click="BtnRedo_Click"/>
-                <Button Style="{StaticResource ToolBtn}" Content="🗑" ToolTip="Xóa tất cả" Click="BtnClear_Click"/>
-                <Button Style="{StaticResource ToolBtn}" Content="💾" ToolTip="Xuất ảnh PNG" Click="BtnExport_Click"/>
-            </StackPanel>
+                    <!-- Actions -->
+                    <TextBlock Text="HÀNH ĐỘNG" Style="{StaticResource SectionLabel}"/>
+                    <WrapPanel HorizontalAlignment="Center">
+                        <Button Style="{StaticResource SmallToolBtn}" Content="↩" ToolTip="Undo (Ctrl+Z)" Click="BtnUndo_Click"/>
+                        <Button Style="{StaticResource SmallToolBtn}" Content="↪" ToolTip="Redo (Ctrl+Y)" Click="BtnRedo_Click"/>
+                        <Button Style="{StaticResource SmallToolBtn}" Content="🗑" ToolTip="Xóa tất cả" Click="BtnClear_Click"/>
+                        <Button Style="{StaticResource SmallToolBtn}" Content="💾" ToolTip="Lưu (Ctrl+S)" Click="BtnSave_Click"/>
+                        <Button Style="{StaticResource SmallToolBtn}" Content="📂" ToolTip="Mở (Ctrl+O)" Click="BtnLoad_Click"/>
+                        <Button Style="{StaticResource SmallToolBtn}" Content="🖼" ToolTip="Xuất PNG" Click="BtnExport_Click"/>
+                    </WrapPanel>
+                </StackPanel>
+            </ScrollViewer>
         </Border>
 
         <!-- === CANVAS (Center) === -->
         <Grid Grid.Column="1">
             <Grid.RowDefinitions>
-                <RowDefinition Height="40"/>   <!-- Color bar -->
-                <RowDefinition Height="*"/>     <!-- Canvas -->
-                <RowDefinition Height="45"/>    <!-- AI Command bar -->
+                <RowDefinition Height="38"/>    <!-- Color bar -->
+                <RowDefinition Height="*"/>      <!-- Canvas -->
+                <RowDefinition Height="40"/>     <!-- AI bar -->
             </Grid.RowDefinitions>
 
-            <!-- Color Palette -->
+            <!-- Color Palette + Zoom -->
             <Border Grid.Row="0" Background="#181825" BorderBrush="#313244" BorderThickness="0,0,0,1">
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0">
-                    <Button Style="{StaticResource ColorBtn}" Background="#000000" Tag="#000000" Click="ColorBtn_Click"/>
-                    <Button Style="{StaticResource ColorBtn}" Background="#FFFFFF" Tag="#FFFFFF" Click="ColorBtn_Click"/>
-                    <Button Style="{StaticResource ColorBtn}" Background="#FF0000" Tag="#FF0000" Click="ColorBtn_Click"/>
-                    <Button Style="{StaticResource ColorBtn}" Background="#FF6B6B" Tag="#FF6B6B" Click="ColorBtn_Click"/>
-                    <Button Style="{StaticResource ColorBtn}" Background="#FF8C00" Tag="#FF8C00" Click="ColorBtn_Click"/>
-                    <Button Style="{StaticResource ColorBtn}" Background="#FFD700" Tag="#FFD700" Click="ColorBtn_Click"/>
-                    <Button Style="{StaticResource ColorBtn}" Background="#00FF00" Tag="#00FF00" Click="ColorBtn_Click"/>
-                    <Button Style="{StaticResource ColorBtn}" Background="#32CD32" Tag="#32CD32" Click="ColorBtn_Click"/>
-                    <Button Style="{StaticResource ColorBtn}" Background="#0000FF" Tag="#0000FF" Click="ColorBtn_Click"/>
-                    <Button Style="{StaticResource ColorBtn}" Background="#3498DB" Tag="#3498DB" Click="ColorBtn_Click"/>
-                    <Button Style="{StaticResource ColorBtn}" Background="#9B59B6" Tag="#9B59B6" Click="ColorBtn_Click"/>
-                    <Button Style="{StaticResource ColorBtn}" Background="#FF69B4" Tag="#FF69B4" Click="ColorBtn_Click"/>
-                    <Button Style="{StaticResource ColorBtn}" Background="#8B4513" Tag="#8B4513" Click="ColorBtn_Click"/>
-                    <Button Style="{StaticResource ColorBtn}" Background="#808080" Tag="#808080" Click="ColorBtn_Click"/>
+                <Grid>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0">
+                        <Button Style="{StaticResource ColorBtn}" Background="#000000" Tag="#000000" Click="ColorBtn_Click"/>
+                        <Button Style="{StaticResource ColorBtn}" Background="#FFFFFF" Tag="#FFFFFF" Click="ColorBtn_Click"/>
+                        <Button Style="{StaticResource ColorBtn}" Background="#FF0000" Tag="#FF0000" Click="ColorBtn_Click"/>
+                        <Button Style="{StaticResource ColorBtn}" Background="#FF6B6B" Tag="#FF6B6B" Click="ColorBtn_Click"/>
+                        <Button Style="{StaticResource ColorBtn}" Background="#FF8C00" Tag="#FF8C00" Click="ColorBtn_Click"/>
+                        <Button Style="{StaticResource ColorBtn}" Background="#FFD700" Tag="#FFD700" Click="ColorBtn_Click"/>
+                        <Button Style="{StaticResource ColorBtn}" Background="#00FF00" Tag="#00FF00" Click="ColorBtn_Click"/>
+                        <Button Style="{StaticResource ColorBtn}" Background="#32CD32" Tag="#32CD32" Click="ColorBtn_Click"/>
+                        <Button Style="{StaticResource ColorBtn}" Background="#0000FF" Tag="#0000FF" Click="ColorBtn_Click"/>
+                        <Button Style="{StaticResource ColorBtn}" Background="#3498DB" Tag="#3498DB" Click="ColorBtn_Click"/>
+                        <Button Style="{StaticResource ColorBtn}" Background="#9B59B6" Tag="#9B59B6" Click="ColorBtn_Click"/>
+                        <Button Style="{StaticResource ColorBtn}" Background="#FF69B4" Tag="#FF69B4" Click="ColorBtn_Click"/>
+                        <Button Style="{StaticResource ColorBtn}" Background="#8B4513" Tag="#8B4513" Click="ColorBtn_Click"/>
+                        <Button Style="{StaticResource ColorBtn}" Background="#808080" Tag="#808080" Click="ColorBtn_Click"/>
 
-                    <Separator Width="1" Background="#45475A" Margin="8,4"/>
-                    <Border x:Name="CurrentColorPreview" Width="32" Height="32" Background="Black" BorderBrush="#CDD6F4" BorderThickness="2" CornerRadius="4"/>
-                    <TextBlock x:Name="TxtCurrentColor" Text="#000000" Foreground="#CDD6F4" VerticalAlignment="Center" Margin="5,0" FontSize="11"/>
+                        <Separator Width="1" Background="#45475A" Margin="6,5"/>
+                        <Button Width="26" Height="26" Margin="1" Cursor="Hand" ToolTip="Chọn màu tùy chỉnh..."
+                                Click="BtnCustomColor_Click" BorderThickness="1" BorderBrush="#45475A">
+                            <Button.Background>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                    <GradientStop Color="Red" Offset="0"/>
+                                    <GradientStop Color="Yellow" Offset="0.25"/>
+                                    <GradientStop Color="Lime" Offset="0.5"/>
+                                    <GradientStop Color="Cyan" Offset="0.75"/>
+                                    <GradientStop Color="Blue" Offset="1"/>
+                                </LinearGradientBrush>
+                            </Button.Background>
+                        </Button>
+                        <Border x:Name="CurrentColorPreview" Width="26" Height="26" Background="Black" BorderBrush="#CDD6F4" BorderThickness="2" CornerRadius="3" Margin="2,0,0,0"/>
+                        <TextBlock x:Name="TxtCurrentColor" Text="#000000" Foreground="#CDD6F4" VerticalAlignment="Center" Margin="5,0" FontSize="11" FontFamily="Consolas"/>
 
-                    <Separator Width="1" Background="#45475A" Margin="8,4"/>
-                    <TextBlock x:Name="TxtToolName" Text="Bút vẽ" Foreground="#89B4FA" VerticalAlignment="Center" FontWeight="Bold" FontSize="13"/>
-                </StackPanel>
+                        <Separator Width="1" Background="#45475A" Margin="6,5"/>
+                        <TextBlock x:Name="TxtToolName" Text="Bút vẽ" Foreground="#89B4FA" VerticalAlignment="Center" FontWeight="Bold" FontSize="12"/>
+                    </StackPanel>
+
+                    <!-- Zoom -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0">
+                        <Button Content="−" Width="24" Height="24" FontSize="14" Style="{StaticResource SmallToolBtn}" Click="BtnZoomOut_Click"/>
+                        <TextBlock x:Name="TxtZoom" Text="100%" Foreground="#CDD6F4" VerticalAlignment="Center" FontSize="11" Margin="4,0" Width="38" TextAlignment="Center"/>
+                        <Button Content="+" Width="24" Height="24" FontSize="14" Style="{StaticResource SmallToolBtn}" Click="BtnZoomIn_Click"/>
+                        <Button Content="⊙" Width="24" Height="24" FontSize="11" Style="{StaticResource SmallToolBtn}" Click="BtnZoomReset_Click" ToolTip="Reset (Ctrl+0)" Margin="2,0,0,0"/>
+                    </StackPanel>
+                </Grid>
             </Border>
 
             <!-- Drawing Canvas -->
-            <Border Grid.Row="1" Background="#FFFFFF" Margin="5" BorderBrush="#45475A" BorderThickness="1" ClipToBounds="True">
+            <Border Grid.Row="1" Background="#E8E8E8" Margin="0" ClipToBounds="True" x:Name="CanvasWrapper"
+                    MouseWheel="Canvas_MouseWheel"
+                    MouseRightButtonDown="Canvas_RightButtonDown"
+                    MouseRightButtonUp="Canvas_RightButtonUp"
+                    MouseMove="CanvasWrapper_MouseMove">
                 <Canvas x:Name="DrawCanvas"
+                        Width="1600" Height="1200"
                         Background="White"
                         MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
                         MouseMove="Canvas_MouseMove"
                         MouseLeftButtonUp="Canvas_MouseLeftButtonUp"
-                        ClipToBounds="True"/>
+                        ClipToBounds="True">
+                    <Canvas.RenderTransform>
+                        <TransformGroup>
+                            <ScaleTransform x:Name="CanvasScale" ScaleX="1" ScaleY="1"/>
+                            <TranslateTransform x:Name="CanvasPan" X="0" Y="0"/>
+                        </TransformGroup>
+                    </Canvas.RenderTransform>
+                </Canvas>
             </Border>
 
             <!-- AI Command Bar -->
             <Border Grid.Row="2" Background="#181825" BorderBrush="#313244" BorderThickness="0,1,0,0">
-                <Grid Margin="10,5">
+                <Grid Margin="8,4">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="🤖 AI:" Foreground="#F9E2AF" VerticalAlignment="Center" FontSize="14" Margin="0,0,8,0"/>
+                    <TextBlock Grid.Column="0" Text="AI:" Foreground="#F9E2AF" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Margin="0,0,6,0"/>
                     <TextBox x:Name="TxtAiCommand" Grid.Column="1"
                              Background="#313244" Foreground="#CDD6F4" BorderBrush="#45475A"
-                             FontSize="13" Padding="8,5" VerticalContentAlignment="Center"
-                             Text="" ToolTip="Nhập lệnh vẽ AI, ví dụ: vẽ hình tròn màu đỏ ở giữa"
+                             FontSize="12" Padding="6,4" VerticalContentAlignment="Center"
+                             ToolTip="Ví dụ: vẽ hình tròn màu đỏ ở giữa"
                              KeyDown="TxtAiCommand_KeyDown"/>
-                    <Button Grid.Column="2" Content="Gửi" Width="60" Margin="5,0,0,0"
-                            Background="#89B4FA" Foreground="#1E1E2E" FontWeight="Bold" BorderThickness="0"
+                    <Button Grid.Column="2" Content="Gửi" Width="50" Margin="4,0,0,0"
+                            Background="#89B4FA" Foreground="#1E1E2E" FontWeight="Bold" FontSize="12" BorderThickness="0"
                             Click="BtnAiSend_Click" Cursor="Hand"/>
                 </Grid>
             </Border>
@@ -152,98 +278,101 @@
         <Border Grid.Column="2" Background="#181825" BorderBrush="#313244" BorderThickness="1,0,0,0">
             <Grid>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>    <!-- Connection -->
-                    <RowDefinition Height="Auto"/>    <!-- Room -->
-                    <RowDefinition Height="140"/>     <!-- Users -->
-                    <RowDefinition Height="*"/>        <!-- Chat -->
-                    <RowDefinition Height="Auto"/>    <!-- Chat input -->
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="130"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- Connection Panel -->
-                <StackPanel Grid.Row="0" Margin="10">
-                    <TextBlock Text="KẾT NỐI" Foreground="#A6ADC8" FontSize="11" FontWeight="Bold" Margin="0,0,0,5"/>
+                <!-- Connection -->
+                <StackPanel Grid.Row="0" Margin="10,8,10,4">
+                    <TextBlock Text="KẾT NỐI" Foreground="#6C7086" FontSize="10" FontWeight="Bold" Margin="0,0,0,4"/>
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="60"/>
+                            <ColumnDefinition Width="70"/>
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
                             <RowDefinition/>
                             <RowDefinition/>
                             <RowDefinition/>
                         </Grid.RowDefinitions>
-
                         <TextBox x:Name="TxtServerIp" Grid.Row="0" Grid.ColumnSpan="2"
                                  Text="127.0.0.1" Background="#313244" Foreground="#CDD6F4"
-                                 BorderBrush="#45475A" FontSize="12" Padding="5,3" Margin="0,0,0,3"/>
+                                 BorderBrush="#45475A" FontSize="12" Padding="5,3" Margin="0,0,0,2"/>
                         <TextBox x:Name="TxtPort" Grid.Row="1" Grid.Column="0"
                                  Text="5000" Background="#313244" Foreground="#CDD6F4"
-                                 BorderBrush="#45475A" FontSize="12" Padding="5,3" Margin="0,0,3,3"/>
+                                 BorderBrush="#45475A" FontSize="12" Padding="5,3" Margin="0,0,2,2"/>
                         <TextBox x:Name="TxtUserName" Grid.Row="1" Grid.Column="1"
                                  Text="" Background="#313244" Foreground="#CDD6F4"
-                                 BorderBrush="#45475A" FontSize="12" Padding="5,3" Margin="0,0,0,3"
+                                 BorderBrush="#45475A" FontSize="12" Padding="5,3" Margin="0,0,0,2"
                                  ToolTip="Tên của bạn"/>
                         <Button x:Name="BtnConnect" Grid.Row="2" Grid.ColumnSpan="2"
                                 Content="Kết nối" Background="#A6E3A1" Foreground="#1E1E2E"
-                                FontWeight="Bold" BorderThickness="0" Padding="5" Cursor="Hand"
+                                FontWeight="Bold" FontSize="12" BorderThickness="0" Padding="4" Cursor="Hand"
                                 Click="BtnConnect_Click"/>
                     </Grid>
                     <TextBlock x:Name="TxtStatus" Text="Chưa kết nối" Foreground="#F38BA8" FontSize="11" Margin="0,3,0,0"/>
                 </StackPanel>
 
-                <!-- Room Panel -->
-                <StackPanel Grid.Row="1" Margin="10,0,10,5">
-                    <TextBlock Text="PHÒNG VẼ" Foreground="#A6ADC8" FontSize="11" FontWeight="Bold" Margin="0,0,0,5"/>
+                <!-- Room -->
+                <StackPanel Grid.Row="1" Margin="10,2,10,4">
+                    <TextBlock Text="PHÒNG VẼ" Foreground="#6C7086" FontSize="10" FontWeight="Bold" Margin="0,0,0,4"/>
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="60"/>
+                            <ColumnDefinition Width="50"/>
                         </Grid.ColumnDefinitions>
                         <TextBox x:Name="TxtRoomId" Grid.Column="0" Text="default"
                                  Background="#313244" Foreground="#CDD6F4" BorderBrush="#45475A"
-                                 FontSize="12" Padding="5,3" Margin="0,0,3,0"/>
+                                 FontSize="12" Padding="5,3" Margin="0,0,2,0"/>
                         <Button x:Name="BtnJoinRoom" Grid.Column="1" Content="Vào"
-                                Background="#89B4FA" Foreground="#1E1E2E" FontWeight="Bold"
+                                Background="#89B4FA" Foreground="#1E1E2E" FontWeight="Bold" FontSize="12"
                                 BorderThickness="0" Cursor="Hand" Click="BtnJoinRoom_Click"/>
                     </Grid>
                     <TextBlock x:Name="TxtRoomName" Text="" Foreground="#A6E3A1" FontSize="11" Margin="0,3,0,0"/>
                 </StackPanel>
 
-                <!-- Users Panel -->
-                <Border Grid.Row="2" Margin="10,0,10,5" Background="#11111B" CornerRadius="5">
-                    <StackPanel>
-                        <TextBlock Text="NGƯỜI DÙNG ONLINE" Foreground="#A6ADC8" FontSize="11" FontWeight="Bold" Margin="8,5"/>
-                        <ListBox x:Name="LstUsers" Background="Transparent" BorderThickness="0" Foreground="#CDD6F4" FontSize="12"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
-                    </StackPanel>
-                </Border>
-
-                <!-- Chat Messages -->
-                <Border Grid.Row="3" Margin="10,0,10,5" Background="#11111B" CornerRadius="5">
+                <!-- Users -->
+                <Border Grid.Row="2" Margin="10,2,10,4" Background="#11111B" CornerRadius="4">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="CHAT" Foreground="#A6ADC8" FontSize="11" FontWeight="Bold" Margin="8,5"/>
-                        <ScrollViewer Grid.Row="1" x:Name="ChatScroll" VerticalScrollBarVisibility="Auto">
-                            <TextBlock x:Name="TxtChat" Foreground="#CDD6F4" FontSize="12" TextWrapping="Wrap" Margin="8,0,8,5"/>
+                        <TextBlock Grid.Row="0" Text="ONLINE" Foreground="#6C7086" FontSize="10" FontWeight="Bold" Margin="8,5,0,2"/>
+                        <ListBox x:Name="LstUsers" Grid.Row="1" Background="Transparent" BorderThickness="0" Foreground="#CDD6F4" FontSize="12"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" Margin="4,0"/>
+                    </Grid>
+                </Border>
+
+                <!-- Chat -->
+                <Border Grid.Row="3" Margin="10,2,10,4" Background="#11111B" CornerRadius="4">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="CHAT" Foreground="#6C7086" FontSize="10" FontWeight="Bold" Margin="8,5,0,2"/>
+                        <ScrollViewer Grid.Row="1" x:Name="ChatScroll" VerticalScrollBarVisibility="Auto" Margin="4,0">
+                            <TextBlock x:Name="TxtChat" Foreground="#CDD6F4" FontSize="11" TextWrapping="Wrap" Margin="4,0,4,4"/>
                         </ScrollViewer>
                     </Grid>
                 </Border>
 
                 <!-- Chat Input -->
-                <Grid Grid.Row="4" Margin="10,0,10,10">
+                <Grid Grid.Row="4" Margin="10,2,10,8">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="50"/>
+                        <ColumnDefinition Width="40"/>
                     </Grid.ColumnDefinitions>
                     <TextBox x:Name="TxtChatInput" Grid.Column="0"
                              Background="#313244" Foreground="#CDD6F4" BorderBrush="#45475A"
                              FontSize="12" Padding="5,3" KeyDown="TxtChatInput_KeyDown"/>
                     <Button Grid.Column="1" Content="↵" Background="#89B4FA" Foreground="#1E1E2E"
                             FontWeight="Bold" FontSize="16" BorderThickness="0" Cursor="Hand"
-                            Click="BtnChatSend_Click" Margin="3,0,0,0"/>
+                            Click="BtnChatSend_Click" Margin="2,0,0,0"/>
                 </Grid>
             </Grid>
         </Border>

@@ -55,3 +55,4 @@ D:\NT106.Q21.ANTN\NetDraw.McpServer\obj\Debug\net8.0\refint\NetDraw.McpServer.dl
 D:\NT106.Q21.ANTN\NetDraw.McpServer\obj\Debug\net8.0\NetDraw.McpServer.pdb
 D:\NT106.Q21.ANTN\NetDraw.McpServer\obj\Debug\net8.0\NetDraw.McpServer.genruntimeconfig.cache
 D:\NT106.Q21.ANTN\NetDraw.McpServer\obj\Debug\net8.0\ref\NetDraw.McpServer.dll
+D:\NT106.Q21.ANTN\NetDraw.McpServer\obj\Debug\net8.0\NetDraw.McpServer.sourcelink.json

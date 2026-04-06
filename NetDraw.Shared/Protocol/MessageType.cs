@@ -34,6 +34,13 @@ public enum MessageType
     AiDrawResult,       // Server -> All: kết quả AI vẽ (shapes)
     AiError,            // Server -> Client: lỗi AI
 
+    // === Cursor ===
+    CursorMove,         // Client -> Server -> All: vị trí chuột real-time
+
+    // === Object manipulation ===
+    MoveObject,         // Di chuyển object
+    DeleteObject,       // Xóa object cụ thể
+
     // === Hệ thống ===
     Ping,
     Pong,

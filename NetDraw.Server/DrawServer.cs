@@ -114,6 +114,15 @@ public class DrawServer
                     await HandleAiCommandAsync(client, message);
                     break;
 
+                case MessageType.CursorMove:
+                    await HandleCursorMoveAsync(client, message);
+                    break;
+
+                case MessageType.MoveObject:
+                case MessageType.DeleteObject:
+                    await HandleObjectManipAsync(client, message);
+                    break;
+
                 case MessageType.Ping:
                     await client.SendAsync(NetMessage.Create(MessageType.Pong, "server", "Server", ""));
                     break;
@@ -253,6 +262,35 @@ public class DrawServer
         message.SenderId = client.ClientId;
         message.SenderName = client.UserName;
         await room.BroadcastAllAsync(message);
+    }
+
+    private async Task HandleCursorMoveAsync(ClientHandler client, NetMessage message)
+    {
+        if (client.CurrentRoomId == null) return;
+        if (!_rooms.TryGetValue(client.CurrentRoomId, out var room)) return;
+
+        message.SenderId = client.ClientId;
+        message.SenderName = client.UserName;
+        // Broadcast cursor chỉ đến người khác (không gửi lại cho sender)
+        await room.BroadcastAsync(message, client.ClientId);
+    }
+
+    private async Task HandleObjectManipAsync(ClientHandler client, NetMessage message)
+    {
+        if (client.CurrentRoomId == null) return;
+        if (!_rooms.TryGetValue(client.CurrentRoomId, out var room)) return;
+
+        // Nếu là delete, xóa khỏi history
+        if (message.Type == MessageType.DeleteObject)
+        {
+            string? actionId = message.Payload?["actionId"]?.ToString();
+            if (actionId != null)
+                room.RemoveDrawAction(actionId);
+        }
+
+        message.SenderId = client.ClientId;
+        message.SenderName = client.UserName;
+        await room.BroadcastAsync(message, client.ClientId);
     }
 
     private async Task HandleChatAsync(ClientHandler client, NetMessage message)

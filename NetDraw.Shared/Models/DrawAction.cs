@@ -57,6 +57,14 @@ public class DrawAction
     // Cho eraser
     [JsonProperty("eraserSize")]
     public double EraserSize { get; set; } = 20;
+
+    // Opacity (0.0 - 1.0)
+    [JsonProperty("opacity")]
+    public double Opacity { get; set; } = 1.0;
+
+    // Dash style
+    [JsonProperty("dashStyle")]
+    public DashStyle DashStyle { get; set; } = DashStyle.Solid;
 }
 
 public class PointData
@@ -82,7 +90,19 @@ public enum DrawTool
     Line,
     Shape,
     Text,
-    Eraser
+    Eraser,
+    Select,
+    Arrow,
+    Calligraphy,  // Bút thư pháp (nét dày-mỏng theo hướng)
+    Highlighter,  // Bút highlight (bán trong suốt)
+    Spray         // Bút phun sơn
+}
+
+public enum DashStyle
+{
+    Solid,
+    Dashed,
+    Dotted
 }
 
 public enum ShapeType

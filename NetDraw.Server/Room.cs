@@ -68,6 +68,14 @@ public class Room
         }
     }
 
+    public void RemoveDrawAction(string actionId)
+    {
+        lock (_historyLock)
+        {
+            _drawHistory.RemoveAll(a => a.Id == actionId);
+        }
+    }
+
     /// <summary>
     /// Broadcast message đến tất cả client trong phòng
     /// </summary>

@@ -55,3 +55,4 @@ D:\NT106.Q21.ANTN\NetDraw.Server\obj\Debug\net8.0\refint\NetDraw.Server.dll
 D:\NT106.Q21.ANTN\NetDraw.Server\obj\Debug\net8.0\NetDraw.Server.pdb
 D:\NT106.Q21.ANTN\NetDraw.Server\obj\Debug\net8.0\NetDraw.Server.genruntimeconfig.cache
 D:\NT106.Q21.ANTN\NetDraw.Server\obj\Debug\net8.0\ref\NetDraw.Server.dll
+D:\NT106.Q21.ANTN\NetDraw.Server\obj\Debug\net8.0\NetDraw.Server.sourcelink.json

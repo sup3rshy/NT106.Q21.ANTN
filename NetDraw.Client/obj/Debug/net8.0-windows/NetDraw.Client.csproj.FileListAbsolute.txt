@@ -76,3 +76,6 @@ D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\refint\NetDraw.Client.
 D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\NetDraw.Client.pdb
 D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\NetDraw.Client.genruntimeconfig.cache
 D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\ref\NetDraw.Client.dll
+D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\NetDraw.Client.sourcelink.json
+D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\ColorPickerDialog.baml
+D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\ColorPickerDialog.g.cs
