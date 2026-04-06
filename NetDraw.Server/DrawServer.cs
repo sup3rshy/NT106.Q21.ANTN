@@ -118,6 +118,10 @@ public class DrawServer
                     await HandleCursorMoveAsync(client, message);
                     break;
 
+                case MessageType.DrawingUpdate:
+                    await HandleDrawingUpdateAsync(client, message);
+                    break;
+
                 case MessageType.MoveObject:
                 case MessageType.DeleteObject:
                     await HandleObjectManipAsync(client, message);
@@ -272,6 +276,19 @@ public class DrawServer
         message.SenderId = client.ClientId;
         message.SenderName = client.UserName;
         // Broadcast cursor chỉ đến người khác (không gửi lại cho sender)
+        await room.BroadcastAsync(message, client.ClientId);
+    }
+
+    /// <summary>
+    /// Live drawing preview - broadcast nhưng KHÔNG lưu history (tạm thời)
+    /// </summary>
+    private async Task HandleDrawingUpdateAsync(ClientHandler client, NetMessage message)
+    {
+        if (client.CurrentRoomId == null) return;
+        if (!_rooms.TryGetValue(client.CurrentRoomId, out var room)) return;
+
+        message.SenderId = client.ClientId;
+        message.SenderName = client.UserName;
         await room.BroadcastAsync(message, client.ClientId);
     }
 

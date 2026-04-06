@@ -170,6 +170,15 @@
                         <Button Style="{StaticResource SmallToolBtn}" Content="📂" ToolTip="Mở (Ctrl+O)" Click="BtnLoad_Click"/>
                         <Button Style="{StaticResource SmallToolBtn}" Content="🖼" ToolTip="Xuất PNG" Click="BtnExport_Click"/>
                     </WrapPanel>
+
+                    <!-- Image -->
+                    <TextBlock Text="HÌNH ẢNH" Style="{StaticResource SectionLabel}"/>
+                    <Button Style="{StaticResource ToolBtn}" Click="BtnImportImage_Click" ToolTip="Import ảnh vào canvas">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="📷" Width="20" TextAlignment="Center"/><TextBlock Text="Import ảnh"/></StackPanel>
+                    </Button>
+                    <Button Style="{StaticResource ToolBtn}" Click="BtnTemplate_Click" ToolTip="Chọn mẫu template">
+                        <StackPanel Orientation="Horizontal"><TextBlock Text="📋" Width="20" TextAlignment="Center"/><TextBlock Text="Template"/></StackPanel>
+                    </Button>
                 </StackPanel>
             </ScrollViewer>
         </Border>

@@ -65,6 +65,14 @@ public class DrawAction
     // Dash style
     [JsonProperty("dashStyle")]
     public DashStyle DashStyle { get; set; } = DashStyle.Solid;
+
+    // Cho Image (Base64)
+    [JsonProperty("imageData", NullValueHandling = NullValueHandling.Ignore)]
+    public string? ImageData { get; set; }
+
+    // Group ID: nhóm nhiều action lại (vd: template) để undo/redo cả nhóm
+    [JsonProperty("groupId", NullValueHandling = NullValueHandling.Ignore)]
+    public string? GroupId { get; set; }
 }
 
 public class PointData
@@ -95,7 +103,8 @@ public enum DrawTool
     Arrow,
     Calligraphy,  // Bút thư pháp (nét dày-mỏng theo hướng)
     Highlighter,  // Bút highlight (bán trong suốt)
-    Spray         // Bút phun sơn
+    Spray,        // Bút phun sơn
+    Image         // Ảnh import (Base64)
 }
 
 public enum DashStyle

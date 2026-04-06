@@ -45,6 +45,10 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, (UIElement cursor, UIElement label)> _remoteCursors = new();
     private DateTime _lastCursorSend = DateTime.MinValue;
 
+    // Live drawing preview từ user khác
+    private readonly Dictionary<string, UIElement> _remoteDrawingPreviews = new();
+    private DateTime _lastDrawingUpdateSend = DateTime.MinValue;
+
     // Undo/Redo
     private readonly List<DrawAction> _allActions = new();
     private readonly List<DrawAction> _myActions = new();
@@ -185,6 +189,8 @@ public partial class MainWindow : Window
                 var drawAction = msg.Payload?.ToObject<DrawAction>();
                 if (drawAction != null)
                 {
+                    // Xóa live preview của user này (nét vẽ đã hoàn thành)
+                    RemoveRemoteDrawingPreview(msg.SenderId);
                     _allActions.Add(drawAction);
                     RenderAction(drawAction);
                 }
@@ -232,6 +238,12 @@ public partial class MainWindow : Window
 
             case MessageType.CursorMove:
                 UpdateRemoteCursor(msg.SenderId, msg.SenderName, msg.Payload?.ToObject<CursorData>());
+                break;
+
+            case MessageType.DrawingUpdate:
+                var liveAction = msg.Payload?.ToObject<DrawAction>();
+                if (liveAction != null)
+                    UpdateRemoteDrawingPreview(msg.SenderId, liveAction);
                 break;
 
             case MessageType.DeleteObject:
@@ -360,6 +372,13 @@ public partial class MainWindow : Window
             UpdateShapeAction(_currentAction, _startPoint, currentPoint);
             _previewShape = CanvasRenderer.Render(_currentAction);
             if (_previewShape != null) DrawCanvas.Children.Add(_previewShape);
+        }
+
+        // Gửi live drawing preview cho user khác (throttled 80ms)
+        if (_network.IsConnected && (DateTime.Now - _lastDrawingUpdateSend).TotalMilliseconds > 80)
+        {
+            _lastDrawingUpdateSend = DateTime.Now;
+            _ = _network.SendAsync(NetMessage.Create(MessageType.DrawingUpdate, _userId, _userName, _currentRoomId, _currentAction));
         }
     }
 
@@ -652,6 +671,39 @@ public partial class MainWindow : Window
         _remoteCursors.Clear();
     }
 
+    #endregion
+
+    #region Remote Drawing Preview
+
+    /// <summary>
+    /// Hiển thị live preview nét vẽ đang được vẽ bởi user khác
+    /// </summary>
+    private void UpdateRemoteDrawingPreview(string userId, DrawAction action)
+    {
+        // Xóa preview cũ
+        if (_remoteDrawingPreviews.TryGetValue(userId, out var oldPreview))
+            DrawCanvas.Children.Remove(oldPreview);
+
+        // Render nét vẽ tạm
+        var element = CanvasRenderer.Render(action);
+        if (element != null)
+        {
+            element.Opacity = Math.Max(action.Opacity * 0.7, 0.3); // Mờ hơn để phân biệt preview
+            element.IsHitTestVisible = false;
+            DrawCanvas.Children.Add(element);
+            _remoteDrawingPreviews[userId] = element;
+        }
+    }
+
+    private void RemoveRemoteDrawingPreview(string userId)
+    {
+        if (_remoteDrawingPreviews.TryGetValue(userId, out var preview))
+        {
+            DrawCanvas.Children.Remove(preview);
+            _remoteDrawingPreviews.Remove(userId);
+        }
+    }
+
     private string GetUserColor(string userId)
     {
         foreach (ListBoxItem item in LstUsers.Items)
@@ -679,6 +731,7 @@ public partial class MainWindow : Window
             DrawTool.Shape => MessageType.DrawShape,
             DrawTool.Text => MessageType.DrawText,
             DrawTool.Eraser => MessageType.Erase,
+            DrawTool.Image => MessageType.DrawLine,
             _ => MessageType.DrawLine
         };
         await _network.SendAsync(NetMessage.Create(msgType, _userId, _userName, _currentRoomId, action));
@@ -774,20 +827,61 @@ public partial class MainWindow : Window
     {
         if (_myActions.Count == 0) return;
         var lastAction = _myActions[^1];
-        _myActions.RemoveAt(_myActions.Count - 1);
-        _undoStack.Push(lastAction);
-        RemoveFromCanvas(lastAction.Id);
-        await _network.SendAsync(NetMessage.Create(MessageType.Undo, _userId, _userName, _currentRoomId,
-            new { actionId = lastAction.Id }));
+
+        // Nếu action thuộc group (template), undo toàn bộ group
+        if (!string.IsNullOrEmpty(lastAction.GroupId))
+        {
+            string groupId = lastAction.GroupId;
+            var groupActions = _myActions.Where(a => a.GroupId == groupId).ToList();
+            foreach (var ga in groupActions)
+            {
+                _myActions.Remove(ga);
+                _undoStack.Push(ga);
+                RemoveFromCanvas(ga.Id);
+                if (_network.IsConnected)
+                    await _network.SendAsync(NetMessage.Create(MessageType.Undo, _userId, _userName, _currentRoomId,
+                        new { actionId = ga.Id }));
+            }
+        }
+        else
+        {
+            _myActions.RemoveAt(_myActions.Count - 1);
+            _undoStack.Push(lastAction);
+            RemoveFromCanvas(lastAction.Id);
+            if (_network.IsConnected)
+                await _network.SendAsync(NetMessage.Create(MessageType.Undo, _userId, _userName, _currentRoomId,
+                    new { actionId = lastAction.Id }));
+        }
     }
 
     private async void BtnRedo_Click(object sender, RoutedEventArgs e)
     {
         if (_undoStack.Count == 0) return;
         var action = _undoStack.Pop();
-        _myActions.Add(action);
-        RenderAction(action);
-        await _network.SendAsync(NetMessage.Create(MessageType.Redo, _userId, _userName, _currentRoomId, action));
+
+        // Nếu action thuộc group (template), redo toàn bộ group
+        if (!string.IsNullOrEmpty(action.GroupId))
+        {
+            string groupId = action.GroupId;
+            var groupActions = new List<DrawAction> { action };
+            while (_undoStack.Count > 0 && _undoStack.Peek().GroupId == groupId)
+                groupActions.Add(_undoStack.Pop());
+
+            foreach (var ga in groupActions)
+            {
+                _myActions.Add(ga);
+                RenderAction(ga);
+                if (_network.IsConnected)
+                    await _network.SendAsync(NetMessage.Create(MessageType.Redo, _userId, _userName, _currentRoomId, ga));
+            }
+        }
+        else
+        {
+            _myActions.Add(action);
+            RenderAction(action);
+            if (_network.IsConnected)
+                await _network.SendAsync(NetMessage.Create(MessageType.Redo, _userId, _userName, _currentRoomId, action));
+        }
     }
 
     private async void BtnClear_Click(object sender, RoutedEventArgs e)
@@ -885,6 +979,78 @@ public partial class MainWindow : Window
         using var fs = File.Create(dialog.FileName);
         encoder.Save(fs);
         MessageBox.Show($"Đã lưu: {dialog.FileName}", "Xuất ảnh");
+    }
+
+    private void BtnImportImage_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "Image Files|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tiff|All|*.*"
+        };
+        if (dialog.ShowDialog() != true) return;
+
+        try
+        {
+            var importDlg = new ImageImportDialog(dialog.FileName) { Owner = this };
+            if (importDlg.ShowDialog() != true || importDlg.ResultBitmap == null) return;
+
+            double scale = importDlg.ScalePercent / 100.0;
+            var bmp = importDlg.ResultBitmap;
+            double imgW = bmp.PixelWidth * scale;
+            double imgH = bmp.PixelHeight * scale;
+
+            // Encode ảnh đã filter thành Base64 PNG
+            var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp));
+            using var ms = new System.IO.MemoryStream();
+            encoder.Save(ms);
+            string base64 = Convert.ToBase64String(ms.ToArray());
+
+            double cx = Math.Max(0, (DrawCanvas.Width - imgW) / 2);
+            double cy = Math.Max(0, (DrawCanvas.Height - imgH) / 2);
+
+            var action = new DrawAction
+            {
+                UserId = _userId,
+                Tool = DrawTool.Image,
+                X = cx, Y = cy,
+                Width = imgW, Height = imgH,
+                ImageData = base64
+            };
+
+            _allActions.Add(action);
+            RenderAction(action);
+            _myActions.Add(action);
+
+            AppendChat($"[Hệ thống] Đã import ảnh ({(int)imgW}x{(int)imgH})", true);
+        }
+        catch (Exception ex) { MessageBox.Show($"Lỗi: {ex.Message}", "Import ảnh"); }
+    }
+
+    private void BtnTemplate_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new TemplateDialog { Owner = this };
+        if (dlg.ShowDialog() != true || dlg.SelectedActions == null) return;
+
+        // Gán cùng groupId để undo toàn bộ template 1 lần
+        string groupId = Guid.NewGuid().ToString();
+        foreach (var action in dlg.SelectedActions)
+        {
+            action.UserId = _userId;
+            action.GroupId = groupId;
+            _allActions.Add(action);
+            _myActions.Add(action);
+            RenderAction(action);
+        }
+
+        // Gửi template đến các user khác trong phòng
+        if (_network.IsConnected)
+        {
+            foreach (var action in dlg.SelectedActions)
+                SendDrawAction(action);
+        }
+
+        AppendChat($"[Hệ thống] Đã thêm template ({dlg.SelectedActions.Count} đối tượng)", true);
     }
 
     #endregion

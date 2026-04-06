@@ -1,6 +1,8 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using NetDraw.Shared.Models;
 using DashStyleModel = NetDraw.Shared.Models.DashStyle;
@@ -26,6 +28,7 @@ public static class CanvasRenderer
             DrawTool.Shape => RenderShape(action),
             DrawTool.Text => RenderText(action),
             DrawTool.Eraser => RenderEraser(action),
+            DrawTool.Image => RenderImage(action),
             _ => null
         };
 
@@ -314,6 +317,35 @@ public static class CanvasRenderer
         foreach (var pt in action.Points)
             polyline.Points.Add(new Point(pt.X, pt.Y));
         return polyline;
+    }
+
+    private static UIElement? RenderImage(DrawAction action)
+    {
+        if (string.IsNullOrEmpty(action.ImageData)) return null;
+
+        try
+        {
+            byte[] bytes = Convert.FromBase64String(action.ImageData);
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.StreamSource = new MemoryStream(bytes);
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.EndInit();
+            bmp.Freeze();
+
+            var image = new Image
+            {
+                Source = bmp,
+                Width = action.Width > 0 ? action.Width : bmp.PixelWidth,
+                Height = action.Height > 0 ? action.Height : bmp.PixelHeight,
+                IsHitTestVisible = false,
+                Tag = action.Id
+            };
+            Canvas.SetLeft(image, action.X);
+            Canvas.SetTop(image, action.Y);
+            return image;
+        }
+        catch { return null; }
     }
 
     public static SolidColorBrush BrushFromHex(string hex)

@@ -79,3 +79,7 @@ D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\ref\NetDraw.Client.dll
 D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\NetDraw.Client.sourcelink.json
 D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\ColorPickerDialog.baml
 D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\ColorPickerDialog.g.cs
+D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\ImageImportDialog.baml
+D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\TemplateDialog.baml
+D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\ImageImportDialog.g.cs
+D:\NT106.Q21.ANTN\NetDraw.Client\obj\Debug\net8.0-windows\TemplateDialog.g.cs
