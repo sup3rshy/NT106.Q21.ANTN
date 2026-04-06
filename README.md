@@ -154,6 +154,315 @@ set CLAUDE_API_KEY=sk-ant-xxxxx
 dotnet run --project NetDraw.McpServer
 ```
 
+## Kết nối mạng & Triển khai
+
+### Tổng quan mô hình mạng
+
+```
+                        ┌──────────────────────────────────┐
+                        │         INTERNET                 │
+                        │                                  │
+  Mạng A (LAN)         │         NAT / Firewall           │        Mạng B (LAN)
+┌─────────────────┐     │     ┌──────────────────┐         │    ┌─────────────────┐
+│ Client A        │     │     │   Router A       │         │    │ Client B        │
+│ 192.168.1.10    │◄────┼────►│ Public IP:       │         │    │ 192.168.0.20    │
+│                 │     │     │ 113.160.x.x      │         │    │                 │
+└─────────────────┘     │     └──────────────────┘         │    └────────┬────────┘
+                        │              ▲                   │             │
+┌─────────────────┐     │              │ Port Forwarding   │             │
+│ Server          │     │              │ 5000 → 192.168.1.5│             │
+│ 192.168.1.5     │◄────┼──────────────┘                   │             │
+│ Port 5000       │     │                                  │             │
+└─────────────────┘     │     ┌──────────────────┐         │             │
+                        │     │   Router B       │◄────────┼─────────────┘
+                        │     │ Public IP:       │         │
+                        │     │ 171.252.x.x      │         │
+                        │     └──────────────────┘         │
+                        └──────────────────────────────────┘
+
+Client B kết nối đến: 113.160.x.x:5000 (Public IP của Router A)
+Router A forward port 5000 → 192.168.1.5:5000 (Server trong LAN A)
+```
+
+### Các khái niệm mạng cơ bản
+
+#### 1. IP Address (Địa chỉ IP)
+
+| Loại | Dải địa chỉ | Phạm vi | Ví dụ |
+|---|---|---|---|
+| **Private IP** (LAN) | `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` | Chỉ trong mạng nội bộ | `192.168.1.5` |
+| **Public IP** (WAN) | Tất cả IP khác | Toàn cầu, duy nhất | `113.160.45.123` |
+| **Loopback** | `127.0.0.0/8` | Chỉ trên chính máy đó | `127.0.0.1` (localhost) |
+
+- Mỗi thiết bị trong LAN có **Private IP** riêng (do router/DHCP cấp)
+- Cả mạng LAN chia sẻ chung **1 Public IP** (do ISP cấp cho router)
+- Máy bên ngoài **KHÔNG thể** truy cập Private IP trực tiếp → cần **Port Forwarding** hoặc **Tunneling**
+
+```bash
+# Xem Private IP của máy
+ipconfig                          # Windows
+ifconfig / ip addr                # Linux/Mac
+
+# Xem Public IP
+curl ifconfig.me                  # hoặc truy cập whatismyip.com
+```
+
+#### 2. Port (Cổng)
+
+- Mỗi ứng dụng mạng lắng nghe trên một **port** (0-65535)
+- Port giống "số phòng" trong một tòa nhà (IP = địa chỉ tòa nhà)
+- NetDraw dùng: **5000** (Draw Server), **5001** (MCP Server)
+
+| Dải port | Loại | Ghi chú |
+|---|---|---|
+| 0 - 1023 | Well-known | HTTP(80), HTTPS(443), SSH(22), FTP(21) |
+| 1024 - 49151 | Registered | MySQL(3306), PostgreSQL(5432) |
+| 49152 - 65535 | Dynamic/Private | Tự do sử dụng |
+
+#### 3. TCP vs UDP
+
+NetDraw sử dụng **TCP** vì cần đảm bảo dữ liệu vẽ không bị mất:
+
+| Đặc điểm | TCP | UDP |
+|---|---|---|
+| Kết nối | Connection-oriented (3-way handshake) | Connectionless |
+| Tin cậy | Đảm bảo gói tin đến đúng thứ tự, không mất | Không đảm bảo |
+| Tốc độ | Chậm hơn (do overhead) | Nhanh hơn |
+| Use case | Chat, file transfer, web, **vẽ cộng tác** | Game, video call, streaming |
+
+```
+TCP 3-Way Handshake:
+Client ──── SYN ────► Server      (1) Client gửi yêu cầu kết nối
+Client ◄── SYN+ACK ── Server     (2) Server chấp nhận
+Client ──── ACK ────► Server      (3) Kết nối được thiết lập
+Client ◄──── DATA ───► Server     Bắt đầu trao đổi dữ liệu
+```
+
+#### 4. NAT (Network Address Translation)
+
+NAT là cơ chế router dùng để **chuyển đổi Private IP ↔ Public IP**:
+
+```
+Gói tin đi ra (LAN → Internet):
+  Src: 192.168.1.5:5000  →  Router NAT  →  Src: 113.160.x.x:54321
+  (Private IP)                              (Public IP, port ngẫu nhiên)
+
+Gói tin đi vào (Internet → LAN):
+  Dst: 113.160.x.x:54321  →  Router NAT  →  Dst: 192.168.1.5:5000
+  (Public IP)                                (Private IP, tra bảng NAT)
+```
+
+- NAT hoạt động tốt cho **kết nối đi ra** (client → server ngoài)
+- Nhưng **chặn kết nối đi vào** (bên ngoài → server trong LAN) vì router không biết forward đến máy nào
+- → Cần **Port Forwarding** để "mở cửa" cho kết nối từ ngoài vào
+
+#### 5. Firewall
+
+- Phần mềm/phần cứng **lọc traffic** vào/ra dựa trên rules
+- Windows Firewall mặc định **chặn kết nối đến** (inbound)
+- Cần mở port 5000 trong Firewall để client khác kết nối được
+
+---
+
+### Cách 1: Cùng mạng LAN (đơn giản nhất)
+
+Tất cả máy kết nối cùng WiFi hoặc cùng mạng Ethernet.
+
+```
+Server: chạy trên máy A (192.168.1.5)
+Client: nhập IP = 192.168.1.5, Port = 5000
+```
+
+**Mở port Firewall trên máy chạy Server:**
+
+```bash
+# Windows - mở port 5000 cho TCP (chạy CMD với quyền Admin)
+netsh advfirewall firewall add rule name="NetDraw Server" dir=in action=allow protocol=TCP localport=5000
+
+# Kiểm tra
+netsh advfirewall firewall show rule name="NetDraw Server"
+
+# Xóa rule khi không cần
+netsh advfirewall firewall delete rule name="NetDraw Server"
+```
+
+### Cách 2: Port Forwarding (qua Internet, không cần phần mềm thêm)
+
+Khi server và client ở **khác mạng** (khác nhà, khác WiFi):
+
+**Bước 1: Cấu hình Port Forwarding trên Router**
+
+```
+1. Truy cập trang quản lý router: http://192.168.1.1 (hoặc 192.168.0.1)
+   - Tài khoản mặc định thường: admin/admin hoặc ghi dưới đáy router
+
+2. Tìm mục: Port Forwarding / Virtual Server / NAT
+
+3. Thêm rule:
+   ┌──────────────────────────────────────────┐
+   │ Service Name:  NetDraw                   │
+   │ Protocol:      TCP                       │
+   │ External Port: 5000                      │
+   │ Internal IP:   192.168.1.5 (IP máy server)│
+   │ Internal Port: 5000                      │
+   │ Enabled:       ✓                         │
+   └──────────────────────────────────────────┘
+
+4. Lưu và khởi động lại router nếu cần
+```
+
+**Bước 2: Tìm Public IP**
+
+```bash
+curl ifconfig.me
+# Hoặc truy cập: https://whatismyip.com
+# Ví dụ kết quả: 113.160.45.123
+```
+
+**Bước 3: Client kết nối**
+
+```
+IP: 113.160.45.123 (Public IP của router chạy server)
+Port: 5000
+```
+
+**Lưu ý quan trọng:**
+- ISP Việt Nam (VNPT, Viettel, FPT) có thể dùng **CGNAT** (Carrier-Grade NAT) → Public IP bị chia sẻ giữa nhiều khách hàng → Port Forwarding không hoạt động
+- Kiểm tra: nếu IP trên router khác với IP trên whatismyip.com → đang bị CGNAT
+- Giải pháp: gọi ISP xin **IP tĩnh** hoặc dùng Cách 3/4
+
+### Cách 3: Ngrok Tunnel (đơn giản, miễn phí, không cần cấu hình router)
+
+[Ngrok](https://ngrok.com) tạo tunnel từ Internet → máy local, bypass NAT và Firewall.
+
+```
+┌────────┐       ┌──────────────┐       ┌────────────┐
+│ Client │──────►│ Ngrok Cloud  │──────►│ Server     │
+│ (Bất kỳ│       │ (tunnel)     │       │ (localhost) │
+│  đâu)  │       │              │       │ port 5000  │
+└────────┘       └──────────────┘       └────────────┘
+```
+
+**Bước 1: Cài đặt Ngrok**
+
+```bash
+# Tải từ: https://ngrok.com/download
+# Hoặc dùng winget/choco:
+winget install ngrok
+choco install ngrok
+```
+
+**Bước 2: Đăng ký và xác thực**
+
+```bash
+# Đăng ký tại ngrok.com, lấy authtoken
+ngrok config add-authtoken <your-token>
+```
+
+**Bước 3: Tạo tunnel**
+
+```bash
+# Chạy sau khi đã start NetDraw Server
+ngrok tcp 5000
+```
+
+Output:
+```
+Session Status    online
+Forwarding        tcp://0.tcp.ap.ngrok.io:12345 -> localhost:5000
+```
+
+**Bước 4: Client kết nối**
+
+```
+IP:   0.tcp.ap.ngrok.io
+Port: 12345
+```
+
+### Cách 4: Cloud VPS (chuyên nghiệp, ổn định)
+
+Triển khai Server lên VPS (Virtual Private Server) có Public IP tĩnh.
+
+```bash
+# Trên VPS (Ubuntu/Debian):
+# 1. Cài .NET 8 Runtime
+wget https://dot.net/v1/dotnet-install.sh
+chmod +x dotnet-install.sh
+./dotnet-install.sh --runtime dotnet --version 8.0.0
+
+# 2. Copy project lên VPS (dùng scp hoặc git)
+scp -r NetDraw.Server/ NetDraw.Shared/ user@vps-ip:~/netdraw/
+scp -r NetDraw.McpServer/ user@vps-ip:~/netdraw/
+
+# 3. Build và chạy
+cd ~/netdraw
+dotnet build
+dotnet run --project NetDraw.Server &
+dotnet run --project NetDraw.McpServer &
+
+# 4. Mở firewall trên VPS
+sudo ufw allow 5000/tcp
+```
+
+**Nhà cung cấp VPS phổ biến:** AWS EC2, Google Cloud, Azure, DigitalOcean, Vultr, Linode
+
+### Cách 5: Tailscale / ZeroTier (VPN Mesh - P2P)
+
+Tạo mạng LAN ảo qua Internet, mỗi máy được cấp IP riêng trong mạng ảo.
+
+```
+┌────────────┐                          ┌────────────┐
+│ Máy A      │     Tailscale Network    │ Máy B      │
+│ LAN: 192.168.1.5│   (mạng ảo)       │ LAN: 192.168.0.20│
+│ Tailscale: │◄────────────────────────►│ Tailscale: │
+│ 100.64.0.1 │    Encrypted P2P tunnel  │ 100.64.0.2 │
+└────────────┘                          └────────────┘
+```
+
+```bash
+# Cài Tailscale: https://tailscale.com/download
+# Đăng nhập trên cả 2 máy
+tailscale up
+
+# Xem IP Tailscale
+tailscale ip
+
+# Client kết nối bằng IP Tailscale của máy chạy Server
+# IP: 100.64.0.1, Port: 5000
+```
+
+### So sánh các phương pháp
+
+| Phương pháp | Độ khó | Chi phí | Tốc độ | Ổn định | Phù hợp |
+|---|---|---|---|---|---|
+| LAN | Rất dễ | Miễn phí | Nhanh nhất | Cao | Demo, test |
+| Port Forwarding | Trung bình | Miễn phí | Nhanh | Cao | Biết cấu hình router |
+| Ngrok | Dễ | Miễn phí (giới hạn) | Trung bình | Trung bình | Demo nhanh, không cần router |
+| Cloud VPS | Khó | Có phí ($5-10/tháng) | Nhanh | Rất cao | Production, triển khai thực |
+| Tailscale/ZeroTier | Dễ | Miễn phí | Nhanh (P2P) | Cao | Nhóm nhỏ, không cần server |
+
+### Xử lý sự cố kết nối
+
+```bash
+# 1. Kiểm tra server đang chạy
+netstat -an | findstr 5000
+
+# 2. Kiểm tra firewall
+netsh advfirewall firewall show rule name=all | findstr 5000
+
+# 3. Kiểm tra kết nối từ client
+# Dùng telnet hoặc Test-NetConnection (PowerShell)
+Test-NetConnection -ComputerName 192.168.1.5 -Port 5000
+
+# 4. Kiểm tra route
+tracert 192.168.1.5        # Windows
+traceroute 192.168.1.5     # Linux/Mac
+
+# 5. Kiểm tra port forwarding hoạt động
+# Từ bên ngoài mạng:
+Test-NetConnection -ComputerName 113.160.x.x -Port 5000
+```
+
 ## Tính năng
 
 ### Công cụ vẽ
