@@ -29,7 +29,7 @@ NetDraw là ứng dụng vẽ cộng tác real-time qua mạng TCP, cho phép nh
 
 | Thành phần | Công nghệ |
 |---|---|
-| Ngôn ngữ | C# (.NET 8) |
+| Ngôn ngữ | C# (.NET 8 LTS) |
 | Giao diện | WPF (Windows Presentation Foundation) |
 | Giao tiếp mạng | TCP Socket (`System.Net.Sockets`) |
 | Giao thức | JSON messages + newline delimiter |
@@ -47,8 +47,8 @@ NetDraw/
 │   │   ├── MessageType.cs       # Enum các loại message
 │   │   └── NetMessage.cs        # Định dạng message (serialize/deserialize)
 │   └── Models/
-│       ├── DrawAction.cs        # Model hành động vẽ (pen, line, shape, text, eraser)
-│       └── RoomInfo.cs          # Model Room, User, Chat, AI payload
+│       ├── DrawAction.cs        # Model hành động vẽ (pen, line, shape, text, eraser, image...)
+│       └── RoomInfo.cs          # Model Room, User, Chat, AI payload, Cursor, DrawingFile
 │
 ├── NetDraw.Server/              # TCP Server
 │   ├── Program.cs               # Entry point (mặc định port 5000)
@@ -58,12 +58,13 @@ NetDraw/
 │   └── FallbackAiParser.cs      # Parser AI dự phòng khi MCP chưa kết nối
 │
 ├── NetDraw.Client/              # WPF Client
-│   ├── MainWindow.xaml          # Giao diện chính: toolbar, canvas, sidebar, AI bar
-│   ├── MainWindow.xaml.cs       # Logic vẽ, kết nối, chat, AI command
+│   ├── MainWindow.xaml/cs       # Giao diện chính + logic vẽ, kết nối, chat, AI
 │   ├── NetworkClient.cs         # TCP client wrapper (connect, send, receive)
 │   ├── CanvasRenderer.cs        # Render DrawAction thành WPF UIElement
-│   ├── InputDialog.xaml         # Dialog nhập text
-│   └── InputDialog.xaml.cs
+│   ├── ColorPickerDialog.xaml/cs    # Bảng chọn màu tùy chỉnh (RGB, HEX, 39+ quick colors)
+│   ├── ImageImportDialog.xaml/cs    # Import ảnh với bộ lọc (đen trắng, sepia, sketch...)
+│   ├── TemplateDialog.xaml/cs       # Chọn template mẫu (grid, wireframe, flowchart...)
+│   └── InputDialog.xaml/cs          # Dialog nhập text
 │
 └── NetDraw.McpServer/           # MCP Server (AI)
     ├── Program.cs               # Entry point (mặc định port 5001)
@@ -95,12 +96,17 @@ Giao thức sử dụng **JSON + newline (`\n`) delimiter** trên TCP Socket.
 | `JoinRoom` | Client → Server | Yêu cầu vào phòng |
 | `RoomJoined` | Server → Client | Xác nhận đã vào phòng |
 | `UserJoined` / `UserLeft` | Server → All | Thông báo user vào/rời |
-| `DrawLine` | Client ↔ Server | Vẽ nét bút / đường thẳng |
+| `DrawLine` | Client ↔ Server | Vẽ nét bút / đường thẳng / mũi tên |
 | `DrawShape` | Client ↔ Server | Vẽ hình (rect, circle, ellipse, triangle, star) |
 | `DrawText` | Client ↔ Server | Chèn text |
 | `Erase` | Client ↔ Server | Xóa (eraser) |
 | `ClearCanvas` | Client ↔ Server | Xóa toàn bộ canvas |
 | `CanvasSnapshot` | Server → Client | Gửi lịch sử vẽ cho user mới join |
+| `DrawingUpdate` | Client → Server → All | Live preview nét đang vẽ (real-time) |
+| `CursorMove` | Client → Server → All | Vị trí chuột real-time |
+| `MoveObject` | Client ↔ Server | Di chuyển đối tượng đã vẽ |
+| `DeleteObject` | Client ↔ Server | Xóa đối tượng cụ thể |
+| `Undo` / `Redo` | Client ↔ Server | Hoàn tác / Làm lại |
 | `ChatMessage` | Client ↔ Server | Tin nhắn chat |
 | `AiCommand` | Client → Server → MCP | Lệnh vẽ AI |
 | `AiDrawResult` | MCP → Server → All | Kết quả AI trả về (danh sách DrawAction) |
@@ -115,7 +121,7 @@ Giao thức sử dụng **JSON + newline (`\n`) delimiter** trên TCP Socket.
 ### Bước 1: Build
 
 ```bash
-cd NetDraw
+cd D:\NT106.Q21.ANTN
 dotnet build
 ```
 
@@ -150,23 +156,50 @@ dotnet run --project NetDraw.McpServer
 
 ## Tính năng
 
-### Vẽ cơ bản
+### Công cụ vẽ
 - Bút vẽ tự do (Pen)
+- Bút thư pháp (Calligraphy) - nét dày/mỏng theo hướng vẽ
+- Bút highlight (Highlighter) - bán trong suốt, nét rộng
+- Bút phun sơn (Spray) - hiệu ứng airbrush
 - Đường thẳng (Line)
+- Mũi tên (Arrow) - đường thẳng có đầu mũi tên
 - Hình chữ nhật, hình tròn, hình elip, tam giác, ngôi sao
 - Chèn text
 - Tẩy (Eraser)
-- Chọn màu (14 màu + color preview)
-- Điều chỉnh kích thước nét
-- Tô màu hình (Fill)
-- Undo / Redo
+
+### Tùy chỉnh nét vẽ
+- Chọn màu nhanh (14 màu) + bảng chọn màu tùy chỉnh (RGB slider, HEX, 39+ quick colors)
+- Điều chỉnh kích thước nét (1-30)
+- Điều chỉnh độ trong suốt (Opacity 10%-100%)
+- Kiểu nét: Nét liền, Nét đứt, Nét chấm (Dash Style)
+- Tô màu nền hình (Fill)
+
+### Thao tác Canvas
+- Chọn / Di chuyển đối tượng (Select tool)
+- Xóa đối tượng đã chọn (Delete)
+- Undo / Redo (hỗ trợ undo theo nhóm cho template)
 - Xóa toàn bộ canvas
+- Pan (kéo chuột phải) & Zoom (scroll wheel, 20%-500%)
+- Lưu / Mở project (.ndr) - lưu toàn bộ bản vẽ bao gồm ảnh import
 - Xuất ảnh PNG
+
+### Hình ảnh & Template
+- Import ảnh (PNG, JPG, BMP, GIF, TIFF) với bộ lọc:
+  - Gốc, Đen trắng (Grayscale), Sepia (Cổ điển), Âm bản (Invert)
+  - Tương phản cao (High Contrast), Phác thảo (Sketch - edge detection)
+  - Điều chỉnh kích thước 10%-200%
+- 10 template mẫu:
+  - Grid (lưới ô vuông), Ruled Lines (giấy kẻ dòng), Dot Grid (lưới chấm)
+  - Coordinate (hệ tọa độ XY), Storyboard (6 ô), Wireframe (giao diện web)
+  - Flowchart (lưu đồ), Music Sheet (khuông nhạc), Calendar (lịch tháng)
+  - Comic (khung truyện tranh)
 
 ### Mạng & Cộng tác
 - Kết nối TCP Socket real-time
 - Hệ thống phòng vẽ (tạo/join/leave)
 - Đồng bộ canvas giữa tất cả user trong phòng
+- **Live Drawing Preview** - user khác thấy nét vẽ đang hình thành real-time
+- Con trỏ chuột real-time - hiển thị vị trí và tên user khác trên canvas
 - User mới join nhận lại toàn bộ bản vẽ (canvas snapshot)
 - Danh sách user online (hiển thị màu riêng mỗi user)
 - Chat trong phòng
@@ -178,19 +211,28 @@ dotnet run --project NetDraw.McpServer
 - Hỗ trợ scene phức tạp: `vẽ phong cảnh có mặt trời mây cây`
 - Hỗ trợ đặc biệt: `vẽ cầu vồng`, `vẽ mặt cười`, `vẽ hoa`, `vẽ trái tim`
 
-### Phím tắt
+## Phím tắt
 
 | Phím | Chức năng |
 |---|---|
+| V | Chọn / Di chuyển |
 | P | Bút vẽ |
 | L | Đường thẳng |
+| A | Mũi tên |
 | R | Hình chữ nhật |
 | C | Hình tròn |
 | E | Hình elip |
 | T | Tam giác |
+| H | Bút highlight |
 | X | Tẩy |
+| Delete | Xóa đối tượng đã chọn |
 | Ctrl+Z | Undo |
 | Ctrl+Y | Redo |
+| Ctrl+S | Lưu project |
+| Ctrl+O | Mở project |
+| Ctrl+0 | Reset zoom |
+| Scroll wheel | Zoom in/out |
+| Chuột phải kéo | Pan canvas |
 
 ## Phân công nhóm (3 thành viên)
 
