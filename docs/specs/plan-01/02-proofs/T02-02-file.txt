@@ -1,0 +1,16 @@
+Type: file
+Command: ls NetDraw.Shared/Models/Actions/
+Expected: 6 subtype files (PenAction, ShapeAction, LineAction, TextAction, ImageAction, EraseAction)
+Timestamp: 2026-04-13T05:46:00Z
+
+Output:
+  EraseAction.cs
+  ImageAction.cs
+  LineAction.cs
+  PenAction.cs
+  ShapeAction.cs
+  TextAction.cs
+
+All 6 subtype files present.
+
+Status: PASS
