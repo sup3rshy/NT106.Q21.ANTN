@@ -2,6 +2,9 @@ using System.Net;
 using System.Net.Sockets;
 using NetDraw.Server.Pipeline;
 using NetDraw.Server.Services;
+using NetDraw.Shared.Models;
+using NetDraw.Shared.Protocol;
+using NetDraw.Shared.Protocol.Payloads;
 
 namespace NetDraw.Server;
 
@@ -42,11 +45,20 @@ public class DrawServer
                 }
             };
 
-            handler.Disconnected += client =>
+            handler.Disconnected += async client =>
             {
                 Console.WriteLine($"[-] Client disconnected: {client.UserName}");
+                var roomId = _roomService.GetRoomIdForClient(client);
                 _roomService.RemoveUserFromRoom(client);
                 _clientRegistry.Unregister(client.UserId);
+
+                if (roomId != null)
+                {
+                    var leftMsg = NetMessage<UserPayload>.Create(
+                        MessageType.UserLeft, client.UserId, client.UserName, roomId,
+                        new UserPayload { User = new UserInfo { UserId = client.UserId, UserName = client.UserName } });
+                    await _roomService.BroadcastToRoomAsync(roomId, leftMsg);
+                }
             };
 
             _ = Task.Run(handler.ListenAsync);

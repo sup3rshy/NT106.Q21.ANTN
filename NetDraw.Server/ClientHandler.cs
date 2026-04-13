@@ -25,7 +25,7 @@ public class ClientHandler
     public string UserColor { get; }
 
     public event Func<ClientHandler, MessageType, string, string, string, JObject?, Task>? MessageReceived;
-    public event Action<ClientHandler>? Disconnected;
+    public event Func<ClientHandler, Task>? Disconnected;
 
     public ClientHandler(TcpClient tcpClient)
     {
@@ -58,7 +58,8 @@ public class ClientHandler
         finally
         {
             _isConnected = false;
-            Disconnected?.Invoke(this);
+            if (Disconnected != null)
+                await Disconnected(this);
             try { _stream.Close(); _tcpClient.Close(); } catch { }
         }
     }

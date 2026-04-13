@@ -54,7 +54,8 @@ public class Room
         lock (_lock)
         {
             _history.AddRange(actions);
-            while (_history.Count > MaxHistory) _history.RemoveAt(0);
+            if (_history.Count > MaxHistory)
+                _history.RemoveRange(0, _history.Count - MaxHistory);
         }
     }
 

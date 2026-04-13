@@ -54,7 +54,7 @@ public class DrawHandler : IMessageHandler
                 var redoPayload = MessageEnvelope.DeserializePayload<DrawPayload>(payload);
                 if (redoPayload?.Action == null) return;
                 _roomService.GetRoom(roomId)?.AddAction(redoPayload.Action);
-                var redoMsg = NetMessage<DrawPayload>.Create(MessageType.Draw, senderId, senderName, roomId, redoPayload);
+                var redoMsg = NetMessage<DrawPayload>.Create(MessageType.Redo, senderId, senderName, roomId, redoPayload);
                 await _roomService.BroadcastToRoomAsync(roomId, redoMsg);
                 break;
         }
