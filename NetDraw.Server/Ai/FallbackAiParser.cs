@@ -1,32 +1,30 @@
 using System.Text.RegularExpressions;
+using NetDraw.Shared.Interfaces;
 using NetDraw.Shared.Models;
+using NetDraw.Shared.Models.Actions;
 
-namespace NetDraw.Server;
+namespace NetDraw.Server.Ai;
 
 /// <summary>
 /// Fallback AI Parser - khi MCP Server không kết nối
-/// Parse lệnh tiếng Việt/Anh đơn giản thành DrawAction
-/// Ví dụ: "vẽ hình tròn màu đỏ ở giữa", "draw blue rectangle at 100 200"
+/// Parse lệnh tiếng Việt/Anh đơn giản thành DrawActionBase subtypes
 /// </summary>
-public static class FallbackAiParser
+public class FallbackAiParser : IAiParser
 {
-    private static readonly Random Rng = new();
-
-    public static List<DrawAction> Parse(string prompt, string userId)
+    public Task<List<DrawActionBase>> ParseAsync(string command)
     {
-        var actions = new List<DrawAction>();
+        return Task.FromResult(Parse(command, "ai"));
+    }
+
+    public static List<DrawActionBase> Parse(string prompt, string userId)
+    {
+        var actions = new List<DrawActionBase>();
         prompt = prompt.ToLower().Trim();
 
-        // Phân tích màu
         string color = ParseColor(prompt);
-
-        // Phân tích vị trí
         var (x, y) = ParsePosition(prompt);
-
-        // Phân tích kích thước
         double size = ParseSize(prompt);
 
-        // Phân tích hình dạng
         if (ContainsAny(prompt, "tròn", "circle", "hình tròn"))
         {
             actions.Add(CreateShapeAction(userId, ShapeType.Circle, x, y, size, size, color));
@@ -60,10 +58,8 @@ public static class FallbackAiParser
             string text = ExtractText(prompt);
             actions.Add(CreateTextAction(userId, x, y, text, color));
         }
-        // Các mẫu phức tạp hơn
         else if (ContainsAny(prompt, "mặt trời", "sun"))
         {
-            // Vẽ mặt trời = circle vàng + các line xung quanh
             actions.Add(CreateShapeAction(userId, ShapeType.Circle, x, y, 50, 50, "#FFD700", "#FFD700"));
             for (int i = 0; i < 8; i++)
             {
@@ -77,15 +73,12 @@ public static class FallbackAiParser
         }
         else if (ContainsAny(prompt, "nhà", "house", "ngôi nhà"))
         {
-            // Vẽ nhà = rect + triangle mái
             actions.Add(CreateShapeAction(userId, ShapeType.Rectangle, x - 40, y, 80, 60, "#8B4513", "#DEB887"));
             actions.Add(CreateShapeAction(userId, ShapeType.Triangle, x - 50, y, 100, 50, "#8B0000", "#B22222"));
-            // Cửa
             actions.Add(CreateShapeAction(userId, ShapeType.Rectangle, x - 10, y + 30, 20, 30, "#8B4513", "#654321"));
         }
         else if (ContainsAny(prompt, "cây", "tree"))
         {
-            // Vẽ cây = rect thân + circle lá
             actions.Add(CreateShapeAction(userId, ShapeType.Rectangle, x - 8, y + 20, 16, 50, "#8B4513", "#8B4513"));
             actions.Add(CreateShapeAction(userId, ShapeType.Circle, x, y, 35, 35, "#228B22", "#32CD32"));
         }
@@ -117,7 +110,6 @@ public static class FallbackAiParser
 
     private static (double x, double y) ParsePosition(string prompt)
     {
-        // Vị trí bằng từ khóa
         double canvasW = 800, canvasH = 600;
 
         if (ContainsAny(prompt, "giữa", "center", "ở giữa", "chính giữa"))
@@ -139,12 +131,10 @@ public static class FallbackAiParser
         if (ContainsAny(prompt, "phải", "right", "bên phải"))
             return (canvasW - 100, canvasH / 2);
 
-        // Tìm tọa độ số trong prompt: "at 100 200" hoặc "tại 100 200"
         var match = Regex.Match(prompt, @"(?:at|tại|vị trí)\s+(\d+)\s+(\d+)");
         if (match.Success)
             return (double.Parse(match.Groups[1].Value), double.Parse(match.Groups[2].Value));
 
-        // Mặc định: giữa canvas
         return (canvasW / 2, canvasH / 2);
     }
 
@@ -155,64 +145,54 @@ public static class FallbackAiParser
         if (ContainsAny(prompt, "rất to", "very big", "huge")) return 150;
 
         var match = Regex.Match(prompt, @"(?:size|kích thước|bán kính|radius)\s+(\d+)");
-        if (match.Success)
-            return double.Parse(match.Groups[1].Value);
+        if (match.Success) return double.Parse(match.Groups[1].Value);
 
-        return 60; // Mặc định
+        return 60;
     }
 
     private static string ExtractText(string prompt)
     {
-        // Tìm text trong dấu ngoặc kép
         var match = Regex.Match(prompt, "\"([^\"]+)\"");
         if (match.Success) return match.Groups[1].Value;
-
         match = Regex.Match(prompt, "'([^']+)'");
         if (match.Success) return match.Groups[1].Value;
-
         return "Hello!";
     }
 
-    private static DrawAction CreateShapeAction(string userId, ShapeType shape, double x, double y,
+    private static ShapeAction CreateShapeAction(string userId, ShapeType shape, double x, double y,
         double w, double h, string color, string? fill = null)
     {
-        return new DrawAction
+        return new ShapeAction
         {
             UserId = userId,
-            Tool = DrawTool.Shape,
             ShapeType = shape,
-            X = x,
-            Y = y,
-            Width = w,
-            Height = h,
-            Radius = Math.Min(w, h) / 2,
+            X = x, Y = y,
+            Width = w, Height = h,
             Color = color,
             FillColor = fill,
             StrokeWidth = 2
         };
     }
 
-    private static DrawAction CreateLineAction(string userId, double x1, double y1, double x2, double y2,
+    private static LineAction CreateLineAction(string userId, double x1, double y1, double x2, double y2,
         string color, double width = 2)
     {
-        return new DrawAction
+        return new LineAction
         {
             UserId = userId,
-            Tool = DrawTool.Line,
-            Points = new List<PointData> { new(x1, y1), new(x2, y2) },
+            StartX = x1, StartY = y1,
+            EndX = x2, EndY = y2,
             Color = color,
             StrokeWidth = width
         };
     }
 
-    private static DrawAction CreateTextAction(string userId, double x, double y, string text, string color)
+    private static TextAction CreateTextAction(string userId, double x, double y, string text, string color)
     {
-        return new DrawAction
+        return new TextAction
         {
             UserId = userId,
-            Tool = DrawTool.Text,
-            X = x,
-            Y = y,
+            X = x, Y = y,
             Text = text,
             Color = color,
             FontSize = 20
