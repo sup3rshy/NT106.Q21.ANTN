@@ -1,114 +1,97 @@
-using System.Collections.Concurrent;
 using NetDraw.Shared.Models;
-using NetDraw.Shared.Protocol;
 
 namespace NetDraw.Server;
 
-/// <summary>
-/// Phòng vẽ - quản lý danh sách user và lịch sử vẽ
-/// </summary>
 public class Room
 {
+    private readonly List<(ClientHandler Client, UserInfo User)> _clients = new();
+    private readonly List<DrawActionBase> _history = new();
+    private readonly object _lock = new();
+    private const int MaxHistory = 5000;
+
     public string RoomId { get; }
-    public string RoomName { get; }
-    public int MaxUsers { get; } = 10;
     public long CreatedAt { get; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    public int ClientCount { get { lock (_lock) return _clients.Count; } }
 
-    private readonly ConcurrentDictionary<string, ClientHandler> _clients = new();
-    private readonly List<DrawAction> _drawHistory = new();
-    private readonly object _historyLock = new();
+    public Room(string roomId) => RoomId = roomId;
 
-    public int UserCount => _clients.Count;
-
-    public Room(string roomId, string roomName)
+    public void AddClient(ClientHandler client, UserInfo user)
     {
-        RoomId = roomId;
-        RoomName = roomName;
+        lock (_lock) _clients.Add((client, user));
     }
 
-    public bool AddClient(ClientHandler client)
+    public void RemoveClient(ClientHandler client)
     {
-        if (_clients.Count >= MaxUsers) return false;
-        return _clients.TryAdd(client.ClientId, client);
+        lock (_lock) _clients.RemoveAll(c => c.Client == client);
     }
 
-    public bool RemoveClient(ClientHandler client)
+    public List<ClientHandler> GetClients()
     {
-        return _clients.TryRemove(client.ClientId, out _);
+        lock (_lock) return _clients.Select(c => c.Client).ToList();
     }
 
-    public IEnumerable<ClientHandler> GetClients() => _clients.Values;
-
-    public void AddDrawAction(DrawAction action)
+    public List<UserInfo> GetUsers()
     {
-        lock (_historyLock)
+        lock (_lock) return _clients.Select(c => c.User).ToList();
+    }
+
+    public UserInfo? GetUser(ClientHandler client)
+    {
+        lock (_lock) return _clients.FirstOrDefault(c => c.Client == client).User;
+    }
+
+    public void AddAction(DrawActionBase action)
+    {
+        lock (_lock)
         {
-            _drawHistory.Add(action);
-            // Giới hạn lịch sử 5000 action
-            if (_drawHistory.Count > 5000)
-            {
-                _drawHistory.RemoveRange(0, 1000);
-            }
+            _history.Add(action);
+            if (_history.Count > MaxHistory) _history.RemoveAt(0);
         }
     }
 
-    public List<DrawAction> GetDrawHistory()
+    public void AddActions(List<DrawActionBase> actions)
     {
-        lock (_historyLock)
+        lock (_lock)
         {
-            return new List<DrawAction>(_drawHistory);
+            _history.AddRange(actions);
+            while (_history.Count > MaxHistory) _history.RemoveAt(0);
         }
+    }
+
+    public List<DrawActionBase> GetHistory()
+    {
+        lock (_lock) return new List<DrawActionBase>(_history);
     }
 
     public void ClearHistory()
     {
-        lock (_historyLock)
+        lock (_lock) _history.Clear();
+    }
+
+    public DrawActionBase? RemoveLastActionByUser(string userId)
+    {
+        lock (_lock)
         {
-            _drawHistory.Clear();
+            for (int i = _history.Count - 1; i >= 0; i--)
+            {
+                if (_history[i].UserId == userId)
+                {
+                    var action = _history[i];
+                    _history.RemoveAt(i);
+                    return action;
+                }
+            }
+            return null;
         }
     }
 
-    public void RemoveDrawAction(string actionId)
+    public bool RemoveActionById(string actionId)
     {
-        lock (_historyLock)
-        {
-            _drawHistory.RemoveAll(a => a.Id == actionId);
-        }
+        lock (_lock) return _history.RemoveAll(a => a.Id == actionId) > 0;
     }
 
-    /// <summary>
-    /// Broadcast message đến tất cả client trong phòng
-    /// </summary>
-    public async Task BroadcastAsync(NetMessage message, string? excludeClientId = null)
+    public DrawActionBase? FindActionById(string actionId)
     {
-        var tasks = _clients.Values
-            .Where(c => c.ClientId != excludeClientId)
-            .Select(c => c.SendAsync(message));
-        await Task.WhenAll(tasks);
+        lock (_lock) return _history.FirstOrDefault(a => a.Id == actionId);
     }
-
-    /// <summary>
-    /// Broadcast đến tất cả kể cả sender
-    /// </summary>
-    public async Task BroadcastAllAsync(NetMessage message)
-    {
-        var tasks = _clients.Values.Select(c => c.SendAsync(message));
-        await Task.WhenAll(tasks);
-    }
-
-    public RoomInfo ToRoomInfo() => new()
-    {
-        RoomId = RoomId,
-        RoomName = RoomName,
-        UserCount = UserCount,
-        MaxUsers = MaxUsers,
-        CreatedAt = CreatedAt
-    };
-
-    public List<UserInfo> GetUserInfoList() => _clients.Values.Select(c => new UserInfo
-    {
-        UserId = c.ClientId,
-        UserName = c.UserName,
-        Color = c.UserColor
-    }).ToList();
 }
