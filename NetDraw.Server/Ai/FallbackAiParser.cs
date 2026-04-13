@@ -31,11 +31,11 @@ public class FallbackAiParser : IAiParser
         }
         else if (ContainsAny(prompt, "vuông", "square", "hình vuông"))
         {
-            actions.Add(CreateShapeAction(userId, ShapeType.Rectangle, x, y, size, size, color));
+            actions.Add(CreateShapeAction(userId, ShapeType.Rect, x, y, size, size, color));
         }
         else if (ContainsAny(prompt, "chữ nhật", "rectangle", "rect", "hình chữ nhật"))
         {
-            actions.Add(CreateShapeAction(userId, ShapeType.Rectangle, x, y, size * 1.5, size, color));
+            actions.Add(CreateShapeAction(userId, ShapeType.Rect, x, y, size * 1.5, size, color));
         }
         else if (ContainsAny(prompt, "tam giác", "triangle", "hình tam giác"))
         {
@@ -73,13 +73,13 @@ public class FallbackAiParser : IAiParser
         }
         else if (ContainsAny(prompt, "nhà", "house", "ngôi nhà"))
         {
-            actions.Add(CreateShapeAction(userId, ShapeType.Rectangle, x - 40, y, 80, 60, "#8B4513", "#DEB887"));
+            actions.Add(CreateShapeAction(userId, ShapeType.Rect, x - 40, y, 80, 60, "#8B4513", "#DEB887"));
             actions.Add(CreateShapeAction(userId, ShapeType.Triangle, x - 50, y, 100, 50, "#8B0000", "#B22222"));
-            actions.Add(CreateShapeAction(userId, ShapeType.Rectangle, x - 10, y + 30, 20, 30, "#8B4513", "#654321"));
+            actions.Add(CreateShapeAction(userId, ShapeType.Rect, x - 10, y + 30, 20, 30, "#8B4513", "#654321"));
         }
         else if (ContainsAny(prompt, "cây", "tree"))
         {
-            actions.Add(CreateShapeAction(userId, ShapeType.Rectangle, x - 8, y + 20, 16, 50, "#8B4513", "#8B4513"));
+            actions.Add(CreateShapeAction(userId, ShapeType.Rect, x - 8, y + 20, 16, 50, "#8B4513", "#8B4513"));
             actions.Add(CreateShapeAction(userId, ShapeType.Circle, x, y, 35, 35, "#228B22", "#32CD32"));
         }
         else if (ContainsAny(prompt, "trái tim", "heart", "tim"))

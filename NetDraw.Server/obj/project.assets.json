@@ -74,39 +74,32 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\Nhan\\.nuget\\packages\\": {},
-    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
+    "/home/hoang/Boxes/kali/.nuget/packages/": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "D:\\NT106.Q21.ANTN\\NetDraw.Server\\NetDraw.Server.csproj",
+      "projectUniqueName": "/run/host/mnt/Data/Workspace/1_Projects/NetDraw-server/NetDraw.Server/NetDraw.Server.csproj",
       "projectName": "NetDraw.Server",
-      "projectPath": "D:\\NT106.Q21.ANTN\\NetDraw.Server\\NetDraw.Server.csproj",
-      "packagesPath": "C:\\Users\\Nhan\\.nuget\\packages\\",
-      "outputPath": "D:\\NT106.Q21.ANTN\\NetDraw.Server\\obj\\",
+      "projectPath": "/run/host/mnt/Data/Workspace/1_Projects/NetDraw-server/NetDraw.Server/NetDraw.Server.csproj",
+      "packagesPath": "/home/hoang/Boxes/kali/.nuget/packages/",
+      "outputPath": "/run/host/mnt/Data/Workspace/1_Projects/NetDraw-server/NetDraw.Server/obj/",
       "projectStyle": "PackageReference",
-      "fallbackFolders": [
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-      ],
       "configFilePaths": [
-        "C:\\Users\\Nhan\\AppData\\Roaming\\NuGet\\NuGet.Config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        "/home/hoang/Boxes/kali/.nuget/NuGet/NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net8.0"
       ],
       "sources": {
-        "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
         "net8.0": {
           "targetAlias": "net8.0",
           "projectReferences": {
-            "D:\\NT106.Q21.ANTN\\NetDraw.Shared\\NetDraw.Shared.csproj": {
-              "projectPath": "D:\\NT106.Q21.ANTN\\NetDraw.Shared\\NetDraw.Shared.csproj"
+            "/run/host/mnt/Data/Workspace/1_Projects/NetDraw-server/NetDraw.Shared/NetDraw.Shared.csproj": {
+              "projectPath": "/run/host/mnt/Data/Workspace/1_Projects/NetDraw-server/NetDraw.Shared/NetDraw.Shared.csproj"
             }
           }
         }
@@ -121,7 +114,7 @@
         "auditLevel": "low",
         "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "10.0.100"
+      "SdkAnalysisLevel": "10.0.200"
     },
     "frameworks": {
       "net8.0": {
@@ -143,12 +136,26 @@
         ],
         "assetTargetFallback": true,
         "warn": true,
+        "downloadDependencies": [
+          {
+            "name": "Microsoft.AspNetCore.App.Ref",
+            "version": "[8.0.25, 8.0.25]"
+          },
+          {
+            "name": "Microsoft.NETCore.App.Host.linux-x64",
+            "version": "[8.0.25, 8.0.25]"
+          },
+          {
+            "name": "Microsoft.NETCore.App.Ref",
+            "version": "[8.0.25, 8.0.25]"
+          }
+        ],
         "frameworkReferences": {
           "Microsoft.NETCore.App": {
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.103/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "/usr/share/dotnet/sdk/10.0.201/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

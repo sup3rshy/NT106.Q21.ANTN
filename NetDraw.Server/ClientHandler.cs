@@ -74,11 +74,10 @@ public class ClientHandler
 
             if (!string.IsNullOrWhiteSpace(json))
             {
-                var parsed = MessageEnvelope.Parse(json);
-                if (parsed != null && MessageReceived != null)
+                var envelope = MessageEnvelope.Parse(json);
+                if (envelope != null && MessageReceived != null)
                 {
-                    var e = parsed.Value;
-                    await MessageReceived(this, e.Type, e.SenderId, e.SenderName, e.RoomId, e.RawPayload);
+                    await MessageReceived(this, envelope.Type, envelope.SenderId, envelope.SenderName, envelope.RoomId, envelope.RawPayload);
                 }
             }
         }

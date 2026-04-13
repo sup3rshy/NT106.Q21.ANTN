@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("NetDraw.Shared")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+87cb1d865810d061980dfc383b1603660c9d29c7")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+53ee50e7f4c970038fc7611085e890b05538c3bf")]
 [assembly: System.Reflection.AssemblyProductAttribute("NetDraw.Shared")]
 [assembly: System.Reflection.AssemblyTitleAttribute("NetDraw.Shared")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
