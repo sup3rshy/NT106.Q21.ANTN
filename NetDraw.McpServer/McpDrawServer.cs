@@ -2,7 +2,9 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using NetDraw.Shared.Models;
+using NetDraw.Shared.Models.Actions;
 using NetDraw.Shared.Protocol;
+using NetDraw.Shared.Protocol.Payloads;
 using Newtonsoft.Json;
 
 namespace NetDraw.McpServer;
@@ -98,10 +100,11 @@ public class McpDrawServer
 
                     if (!string.IsNullOrWhiteSpace(json))
                     {
-                        var msg = NetMessage.Deserialize(json);
-                        if (msg?.Type == MessageType.AiCommand)
+                        var envelope = MessageEnvelope.Parse(json);
+                        if (envelope?.Type == MessageType.AiCommand)
                         {
-                            await ProcessAiCommandAsync(msg);
+                            var payload = MessageEnvelope.DeserializePayload<AiCommandPayload>(envelope.RawPayload);
+                            await ProcessAiCommandAsync(envelope, payload);
                         }
                     }
                 }
@@ -120,15 +123,15 @@ public class McpDrawServer
         }
     }
 
-    private async Task ProcessAiCommandAsync(NetMessage msg)
+    private async Task ProcessAiCommandAsync(MessageEnvelope.Envelope envelope, AiCommandPayload? cmdPayload)
     {
-        string prompt = msg.Payload?["prompt"]?.ToString() ?? "";
-        string clientId = msg.SenderId;
-        string roomId = msg.RoomId;
+        string prompt = cmdPayload?.Prompt ?? "";
+        string clientId = envelope.SenderId;
+        string roomId = envelope.RoomId;
 
         Console.WriteLine($"[AI] Processing: \"{prompt}\" from {clientId} in room {roomId}");
 
-        List<DrawAction> actions;
+        List<DrawActionBase> actions;
 
         if (!string.IsNullOrEmpty(_apiKey))
         {
@@ -144,13 +147,13 @@ public class McpDrawServer
         Console.WriteLine($"[AI] Generated {actions.Count} draw actions");
 
         // Gửi kết quả về DrawServer
-        var result = NetMessage.Create(MessageType.AiDrawResult, clientId, "", roomId,
+        var result = NetMessage<AiResultPayload>.Create(MessageType.AiResult, clientId, "", roomId,
             new AiResultPayload { Prompt = prompt, Actions = actions });
 
         await SendToDrawServerAsync(result);
     }
 
-    private async Task<List<DrawAction>> CallClaudeApiAsync(string prompt, string userId)
+    private async Task<List<DrawActionBase>> CallClaudeApiAsync(string prompt, string userId)
     {
         try
         {
@@ -161,20 +164,19 @@ public class McpDrawServer
             string systemPrompt = @"You are a drawing assistant for a collaborative canvas app (800x600 pixels).
 When the user asks you to draw something, respond with a JSON array of draw actions.
 Each action should have these fields:
-- tool: ""Shape"" or ""Line"" or ""Text""
-- shapeType: ""Circle"", ""Rectangle"", ""Ellipse"", ""Triangle"", or ""Star"" (for Shape tool)
+- type: ""shape"" or ""line"" or ""text"" (the action type discriminator)
+- shapeType: ""Rect"", ""Circle"", ""Ellipse"", ""Triangle"", or ""Star"" (for shape type)
 - x, y: position (top-left for shapes, or center for circles)
 - width, height: size
-- radius: for circles
 - color: hex color string like ""#FF0000""
 - fillColor: hex color for fill (or null for no fill)
 - strokeWidth: line width (default 2)
-- text: for Text tool
-- fontSize: for Text tool
-- points: [{x, y}] array for Line tool
+- startX, startY, endX, endY: for line type
+- text: for text type
+- fontSize: for text type
 
 Respond ONLY with a JSON array, no other text. Example:
-[{""tool"":""Shape"",""shapeType"":""Circle"",""x"":400,""y"":300,""width"":100,""height"":100,""radius"":50,""color"":""#FF0000"",""fillColor"":""#FF0000"",""strokeWidth"":2}]";
+[{""type"":""shape"",""shapeType"":""Circle"",""x"":400,""y"":300,""width"":100,""height"":100,""color"":""#FF0000"",""fillColor"":""#FF0000"",""strokeWidth"":2}]";
 
             var requestBody = new
             {
@@ -198,7 +200,11 @@ Respond ONLY with a JSON array, no other text. Example:
             if (startIdx >= 0 && endIdx > startIdx)
             {
                 string jsonArray = aiText[startIdx..(endIdx + 1)];
-                var actions = JsonConvert.DeserializeObject<List<DrawAction>>(jsonArray) ?? new();
+                var settings = new JsonSerializerSettings
+                {
+                    Converters = { new DrawActionConverter() }
+                };
+                var actions = JsonConvert.DeserializeObject<List<DrawActionBase>>(jsonArray, settings) ?? new();
                 foreach (var a in actions)
                 {
                     a.UserId = userId;
@@ -216,7 +222,7 @@ Respond ONLY with a JSON array, no other text. Example:
         return EnhancedAiParser.Parse(prompt, userId);
     }
 
-    private async Task SendToDrawServerAsync(NetMessage message)
+    private async Task SendToDrawServerAsync<T>(NetMessage<T> message) where T : IPayload
     {
         if (_drawServerStream == null) return;
 

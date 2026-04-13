@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("NetDraw.McpServer")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+87cb1d865810d061980dfc383b1603660c9d29c7")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7b8e911e960ab99bf74805a51302ccf55a6fe583")]
 [assembly: System.Reflection.AssemblyProductAttribute("NetDraw.McpServer")]
 [assembly: System.Reflection.AssemblyTitleAttribute("NetDraw.McpServer")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

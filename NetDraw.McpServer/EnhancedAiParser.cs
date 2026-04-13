@@ -1,5 +1,7 @@
 using System.Text.RegularExpressions;
+using NetDraw.Shared.Interfaces;
 using NetDraw.Shared.Models;
+using NetDraw.Shared.Models.Actions;
 
 namespace NetDraw.McpServer;
 
@@ -8,13 +10,16 @@ namespace NetDraw.McpServer;
 /// Hỗ trợ cả tiếng Việt và tiếng Anh
 /// Phức tạp hơn FallbackParser, có thể vẽ nhiều hình, scene phức tạp
 /// </summary>
-public static class EnhancedAiParser
+public class EnhancedAiParser : IAiParser
 {
     private static readonly Random Rng = new();
     private const double CanvasW = 800;
     private const double CanvasH = 600;
 
-    public static List<DrawAction> Parse(string prompt, string userId)
+    public Task<List<DrawActionBase>> ParseAsync(string command) =>
+        Task.FromResult(Parse(command, "ai"));
+
+    public static List<DrawActionBase> Parse(string prompt, string userId)
     {
         prompt = prompt.ToLower().Trim();
 
@@ -26,17 +31,17 @@ public static class EnhancedAiParser
         return ParseSingle(prompt, userId);
     }
 
-    private static List<DrawAction> ParseScene(string prompt, string userId)
+    private static List<DrawActionBase> ParseScene(string prompt, string userId)
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
 
         // === Cảnh bầu trời / landscape ===
         if (ContainsAny(prompt, "bầu trời", "sky", "phong cảnh", "landscape", "cảnh"))
         {
             // Nền trời
-            actions.Add(Shape(userId, ShapeType.Rectangle, 0, 0, CanvasW, CanvasH * 0.6, "#87CEEB", "#87CEEB"));
+            actions.Add(Shape(userId, ShapeType.Rect, 0, 0, CanvasW, CanvasH * 0.6, "#87CEEB", "#87CEEB"));
             // Nền đất
-            actions.Add(Shape(userId, ShapeType.Rectangle, 0, CanvasH * 0.6, CanvasW, CanvasH * 0.4, "#228B22", "#228B22"));
+            actions.Add(Shape(userId, ShapeType.Rect, 0, CanvasH * 0.6, CanvasW, CanvasH * 0.4, "#228B22", "#228B22"));
 
             if (ContainsAny(prompt, "mặt trời", "sun", "nắng"))
             {
@@ -137,9 +142,9 @@ public static class EnhancedAiParser
             string color = ParseColor(prompt, "#E74C3C");
             var (cx, cy) = ParsePosition(prompt);
             // Thân xe
-            actions.Add(Shape(userId, ShapeType.Rectangle, cx - 60, cy - 15, 120, 30, color, color));
+            actions.Add(Shape(userId, ShapeType.Rect, cx - 60, cy - 15, 120, 30, color, color));
             // Cabin
-            actions.Add(Shape(userId, ShapeType.Rectangle, cx - 30, cy - 40, 60, 25, "#3498DB", "#3498DB"));
+            actions.Add(Shape(userId, ShapeType.Rect, cx - 30, cy - 40, 60, 25, "#3498DB", "#3498DB"));
             // Bánh xe
             actions.Add(ShapeCenter(userId, ShapeType.Circle, cx - 35, cy + 15, 20, 20, "#333", "#333"));
             actions.Add(ShapeCenter(userId, ShapeType.Circle, cx + 35, cy + 15, 20, 20, "#333", "#333"));
@@ -162,9 +167,9 @@ public static class EnhancedAiParser
         return actions;
     }
 
-    private static List<DrawAction> ParseSingle(string prompt, string userId)
+    private static List<DrawActionBase> ParseSingle(string prompt, string userId)
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         string color = ParseColor(prompt, "#000000");
         var (x, y) = ParsePosition(prompt);
         double size = ParseSize(prompt);
@@ -172,9 +177,9 @@ public static class EnhancedAiParser
         if (ContainsAny(prompt, "tròn", "circle"))
             actions.Add(ShapeCenter(userId, ShapeType.Circle, x, y, size, size, color, HasFill(prompt) ? color : null));
         else if (ContainsAny(prompt, "vuông", "square"))
-            actions.Add(Shape(userId, ShapeType.Rectangle, x - size / 2, y - size / 2, size, size, color, HasFill(prompt) ? color : null));
+            actions.Add(Shape(userId, ShapeType.Rect, x - size / 2, y - size / 2, size, size, color, HasFill(prompt) ? color : null));
         else if (ContainsAny(prompt, "chữ nhật", "rectangle", "rect"))
-            actions.Add(Shape(userId, ShapeType.Rectangle, x - size * 0.75, y - size / 2, size * 1.5, size, color, HasFill(prompt) ? color : null));
+            actions.Add(Shape(userId, ShapeType.Rect, x - size * 0.75, y - size / 2, size * 1.5, size, color, HasFill(prompt) ? color : null));
         else if (ContainsAny(prompt, "tam giác", "triangle"))
             actions.Add(Shape(userId, ShapeType.Triangle, x - size / 2, y - size / 2, size, size, color, HasFill(prompt) ? color : null));
         else if (ContainsAny(prompt, "ngôi sao", "star", "sao"))
@@ -194,9 +199,9 @@ public static class EnhancedAiParser
 
     #region Drawing Helpers
 
-    private static List<DrawAction> DrawSun(string userId, double cx, double cy)
+    private static List<DrawActionBase> DrawSun(string userId, double cx, double cy)
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         actions.Add(ShapeCenter(userId, ShapeType.Circle, cx, cy, 50, 50, "#FFD700", "#FFD700"));
         for (int i = 0; i < 12; i++)
         {
@@ -209,9 +214,9 @@ public static class EnhancedAiParser
         return actions;
     }
 
-    private static List<DrawAction> DrawCloud(string userId, double cx, double cy)
+    private static List<DrawActionBase> DrawCloud(string userId, double cx, double cy)
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         actions.Add(ShapeCenter(userId, ShapeType.Circle, cx, cy, 40, 40, "#FFF", "#FFF"));
         actions.Add(ShapeCenter(userId, ShapeType.Circle, cx + 25, cy - 5, 35, 35, "#FFF", "#FFF"));
         actions.Add(ShapeCenter(userId, ShapeType.Circle, cx - 25, cy + 5, 30, 30, "#FFF", "#FFF"));
@@ -219,11 +224,11 @@ public static class EnhancedAiParser
         return actions;
     }
 
-    private static List<DrawAction> DrawTree(string userId, double cx, double cy)
+    private static List<DrawActionBase> DrawTree(string userId, double cx, double cy)
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         // Thân cây
-        actions.Add(Shape(userId, ShapeType.Rectangle, cx - 10, cy, 20, 60, "#8B4513", "#8B4513"));
+        actions.Add(Shape(userId, ShapeType.Rect, cx - 10, cy, 20, 60, "#8B4513", "#8B4513"));
         // Tán lá
         actions.Add(ShapeCenter(userId, ShapeType.Circle, cx, cy - 10, 60, 60, "#228B22", "#32CD32"));
         actions.Add(ShapeCenter(userId, ShapeType.Circle, cx - 20, cy, 40, 40, "#228B22", "#2E8B57"));
@@ -231,18 +236,18 @@ public static class EnhancedAiParser
         return actions;
     }
 
-    private static List<DrawAction> DrawHouse(string userId, double cx, double cy)
+    private static List<DrawActionBase> DrawHouse(string userId, double cx, double cy)
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         // Tường
-        actions.Add(Shape(userId, ShapeType.Rectangle, cx - 50, cy, 100, 80, "#8B4513", "#DEB887"));
+        actions.Add(Shape(userId, ShapeType.Rect, cx - 50, cy, 100, 80, "#8B4513", "#DEB887"));
         // Mái
         actions.Add(Shape(userId, ShapeType.Triangle, cx - 60, cy, 120, 50, "#B22222", "#B22222"));
         // Cửa
-        actions.Add(Shape(userId, ShapeType.Rectangle, cx - 12, cy + 40, 24, 40, "#654321", "#654321"));
+        actions.Add(Shape(userId, ShapeType.Rect, cx - 12, cy + 40, 24, 40, "#654321", "#654321"));
         // Cửa sổ
-        actions.Add(Shape(userId, ShapeType.Rectangle, cx + 20, cy + 20, 20, 20, "#87CEEB", "#87CEEB"));
-        actions.Add(Shape(userId, ShapeType.Rectangle, cx - 40, cy + 20, 20, 20, "#87CEEB", "#87CEEB"));
+        actions.Add(Shape(userId, ShapeType.Rect, cx + 20, cy + 20, 20, 20, "#87CEEB", "#87CEEB"));
+        actions.Add(Shape(userId, ShapeType.Rect, cx - 40, cy + 20, 20, 20, "#87CEEB", "#87CEEB"));
         return actions;
     }
 
@@ -319,32 +324,32 @@ public static class EnhancedAiParser
 
     #region DrawAction Factory
 
-    private static DrawAction Shape(string userId, ShapeType type, double x, double y, double w, double h,
+    private static ShapeAction Shape(string userId, ShapeType type, double x, double y, double w, double h,
         string color, string? fill, double strokeWidth = 2) => new()
     {
-        UserId = userId, Tool = DrawTool.Shape, ShapeType = type,
-        X = x, Y = y, Width = w, Height = h, Radius = Math.Min(w, h) / 2,
+        UserId = userId, ShapeType = type,
+        X = x, Y = y, Width = w, Height = h,
         Color = color, FillColor = fill, StrokeWidth = strokeWidth
     };
 
-    private static DrawAction ShapeCenter(string userId, ShapeType type, double cx, double cy, double w, double h,
+    private static ShapeAction ShapeCenter(string userId, ShapeType type, double cx, double cy, double w, double h,
         string color, string? fill, double strokeWidth = 2) => new()
     {
-        UserId = userId, Tool = DrawTool.Shape, ShapeType = type,
-        X = cx, Y = cy, Width = w, Height = h, Radius = Math.Min(w, h) / 2,
+        UserId = userId, ShapeType = type,
+        X = cx, Y = cy, Width = w, Height = h,
         Color = color, FillColor = fill, StrokeWidth = strokeWidth
     };
 
-    private static DrawAction Line(string userId, double x1, double y1, double x2, double y2,
+    private static LineAction Line(string userId, double x1, double y1, double x2, double y2,
         string color, double strokeWidth = 2) => new()
     {
-        UserId = userId, Tool = DrawTool.Line, Color = color, StrokeWidth = strokeWidth,
-        Points = new List<PointData> { new(x1, y1), new(x2, y2) }
+        UserId = userId, Color = color, StrokeWidth = strokeWidth,
+        StartX = x1, StartY = y1, EndX = x2, EndY = y2
     };
 
-    private static DrawAction Text(string userId, double x, double y, string text, string color) => new()
+    private static TextAction Text(string userId, double x, double y, string text, string color) => new()
     {
-        UserId = userId, Tool = DrawTool.Text, X = x, Y = y, Text = text, Color = color, FontSize = 24
+        UserId = userId, X = x, Y = y, Text = text, Color = color, FontSize = 24
     };
 
     #endregion
