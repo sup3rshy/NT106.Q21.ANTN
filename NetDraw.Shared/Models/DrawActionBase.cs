@@ -33,3 +33,17 @@ public abstract class DrawActionBase
     [JsonProperty("dashStyle")]
     public DashStyle DashStyle { get; set; } = DashStyle.Solid;
 }
+
+public enum DashStyle { Solid, Dashed, Dotted }
+
+public class PointData
+{
+    [JsonProperty("x")]
+    public double X { get; set; }
+
+    [JsonProperty("y")]
+    public double Y { get; set; }
+
+    public PointData() { }
+    public PointData(double x, double y) { X = x; Y = y; }
+}

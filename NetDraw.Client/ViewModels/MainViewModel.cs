@@ -12,7 +12,7 @@ namespace NetDraw.Client.ViewModels;
 
 public class MainViewModel : ViewModelBase
 {
-    private readonly INetworkService _network;
+    public readonly INetworkService Network;
     private readonly IFileService _fileService;
     private readonly EventAggregator _events;
 
@@ -40,7 +40,7 @@ public class MainViewModel : ViewModelBase
 
     public MainViewModel(INetworkService network, IFileService fileService, HistoryManager history, EventAggregator events)
     {
-        _network = network;
+        Network = network;
         _fileService = fileService;
         _events = events;
 
@@ -52,8 +52,8 @@ public class MainViewModel : ViewModelBase
         ConnectCommand = new RelayCommand(async () => await ToggleConnectAsync());
         JoinRoomCommand = new RelayCommand(async () => await JoinRoomAsync(RoomId));
 
-        _network.MessageReceived += OnMessageReceived;
-        _network.Disconnected += reason => Application.Current.Dispatcher.Invoke(() =>
+        Network.MessageReceived += OnMessageReceived;
+        Network.Disconnected += reason => Application.Current.Dispatcher.Invoke(() =>
         {
             IsConnected = false;
             StatusText = reason;
@@ -62,10 +62,10 @@ public class MainViewModel : ViewModelBase
 
     private async Task ToggleConnectAsync()
     {
-        if (IsConnected) { _network.Disconnect(); return; }
+        if (IsConnected) { Network.Disconnect(); return; }
 
         StatusText = "Đang kết nối...";
-        bool ok = await _network.ConnectAsync(ServerHost, ServerPort);
+        bool ok = await Network.ConnectAsync(ServerHost, ServerPort);
         if (ok)
         {
             IsConnected = true;
@@ -89,17 +89,17 @@ public class MainViewModel : ViewModelBase
         _events.Publish(new ClearCanvasEvent());
         SyncUserInfo();
 
-        var msg = NetMessage<UserPayload>.Create(MessageType.JoinRoom, _network.ClientId, UserName, roomId,
-            new UserPayload { User = new UserInfo { UserId = _network.ClientId, UserName = UserName } });
-        await _network.SendAsync(msg);
+        var msg = NetMessage<UserPayload>.Create(MessageType.JoinRoom, Network.ClientId, UserName, roomId,
+            new UserPayload { User = new UserInfo { UserId = Network.ClientId, UserName = UserName } });
+        await Network.SendAsync(msg);
     }
 
     private void SyncUserInfo()
     {
-        Canvas.UserId = _network.ClientId;
+        Canvas.UserId = Network.ClientId;
         Canvas.UserName = UserName;
         Canvas.RoomId = RoomId;
-        Chat.UserId = _network.ClientId;
+        Chat.UserId = Network.ClientId;
         Chat.UserName = UserName;
         Chat.RoomId = RoomId;
     }

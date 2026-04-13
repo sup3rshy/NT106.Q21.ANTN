@@ -1,6 +1,7 @@
 using NetDraw.Client.Infrastructure;
 using NetDraw.Shared.Models;
 using NetDraw.Shared.Models.Actions;
+using ShapeType = NetDraw.Shared.Models.Actions.ShapeType;
 
 namespace NetDraw.Client.ViewModels;
 
@@ -22,7 +23,7 @@ public class ToolbarViewModel : ViewModelBase
 
     public DrawTool ActiveTool { get => _activeTool; set { if (SetProperty(ref _activeTool, value)) _events.Publish(new ToolChangedEvent()); } }
     public string CurrentColor { get => _currentColor; set { SetProperty(ref _currentColor, value); _events.Publish(new ToolChangedEvent()); } }
-    public double StrokeWidth { get => _strokeWidth; set => SetProperty(ref _strokeWidth, value); }
+    public double StrokeWidth { get => _strokeWidth; set { SetProperty(ref _strokeWidth, value); } }
     public double Opacity { get => _opacity; set => SetProperty(ref _opacity, value); }
     public DashStyle DashStyle { get => _dashStyle; set => SetProperty(ref _dashStyle, value); }
     public ShapeType ActiveShapeType { get => _activeShapeType; set => SetProperty(ref _activeShapeType, value); }
