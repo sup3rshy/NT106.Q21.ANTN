@@ -1,49 +1,36 @@
 namespace NetDraw.Shared.Protocol;
 
 /// <summary>
-/// Các loại message trong giao thức NetDraw
+/// All message types in the NetDraw protocol, grouped by domain.
 /// </summary>
 public enum MessageType
 {
-    // === Kết nối & Phòng ===
-    JoinRoom,           // Client -> Server: xin vào phòng
-    LeaveRoom,          // Client -> Server: rời phòng
-    RoomJoined,         // Server -> Client: đã vào phòng thành công
-    RoomLeft,           // Server -> Client: đã rời phòng
-    UserJoined,         // Server -> All: user mới vào phòng
-    UserLeft,           // Server -> All: user rời phòng
-    RoomUserList,       // Server -> Client: danh sách user trong phòng
-    RoomList,           // Server -> Client: danh sách phòng
-    RequestRoomList,    // Client -> Server: xin danh sách phòng
+    // === Connection & Room ===
+    JoinRoom,           // Client -> Server: request to join a room
+    LeaveRoom,          // Client -> Server: leave room
+    RoomJoined,         // Server -> Client: joined successfully (carries history + user list)
+    UserJoined,         // Server -> All: a new user entered the room
+    UserLeft,           // Server -> All: a user left the room
+    RoomList,           // Server -> Client: list of available rooms
 
-    // === Vẽ ===
-    DrawLine,           // Vẽ đường thẳng/nét bút
-    DrawShape,          // Vẽ hình (circle, rect, ellipse)
-    DrawText,           // Vẽ text
-    Erase,              // Xóa vùng
-    ClearCanvas,        // Xóa toàn bộ canvas
-    Undo,               // Hoàn tác
-    Redo,               // Làm lại
-    CanvasSnapshot,     // Server -> Client: snapshot canvas hiện tại (cho user mới join)
+    // === Drawing ===
+    Draw,               // Client -> Server -> All: committed draw action
+    DrawPreview,        // Client -> Server -> All: live preview (not persisted)
+    ClearCanvas,        // Client -> Server -> All: clear entire canvas
+    Undo,               // Client -> Server -> All: undo last action
+    Redo,               // Client -> Server -> All: redo last undone action
+    MoveObject,         // Client -> Server -> All: move an object by delta
+    DeleteObject,       // Client -> Server -> All: delete a specific object
+    CanvasSnapshot,     // Server -> Client: full canvas state for late joiners
 
-    // === Chat ===
-    ChatMessage,        // Tin nhắn chat
+    // === Presence ===
+    CursorMove,         // Client -> Server -> All: real-time cursor position
 
-    // === AI / MCP ===
-    AiCommand,          // Client -> Server: lệnh AI (text)
-    AiDrawResult,       // Server -> All: kết quả AI vẽ (shapes)
-    AiError,            // Server -> Client: lỗi AI
+    // === Chat & AI ===
+    ChatMessage,        // Client <-> Server: chat text
+    AiCommand,          // Client -> Server: AI prompt
+    AiResult,           // Server -> All: AI-generated drawing actions
 
-    // === Cursor & Live Drawing ===
-    CursorMove,         // Client -> Server -> All: vị trí chuột real-time
-    DrawingUpdate,      // Client -> Server -> All: live preview nét đang vẽ (tạm thời, không lưu history)
-
-    // === Object manipulation ===
-    MoveObject,         // Di chuyển object
-    DeleteObject,       // Xóa object cụ thể
-
-    // === Hệ thống ===
-    Ping,
-    Pong,
-    Error
+    // === System ===
+    Error               // Server -> Client: error notification
 }

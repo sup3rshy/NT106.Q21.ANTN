@@ -1,0 +1,19 @@
+Type: file
+Description: Verify DrawActionBase.cs exists and contains expected structure
+Expected: File exists with abstract class DrawActionBase, abstract Type property, shared properties
+Timestamp: 2026-04-13T00:00:00Z
+
+--- File: NetDraw.Shared/Models/DrawActionBase.cs ---
+- Contains: abstract class DrawActionBase
+- Contains: abstract string Type (JSON discriminator)
+- Contains: Id (string, Guid default)
+- Contains: UserId (string)
+- Contains: GroupId (string?, nullable)
+- Contains: Color (string, "#000000")
+- Contains: StrokeWidth (double, 2)
+- Contains: Opacity (double, 1.0)
+- Contains: DashStyle (DashStyle enum, Solid)
+- All properties annotated with [JsonProperty("camelCase")]
+- Namespace: NetDraw.Shared.Models
+
+Status: PASS

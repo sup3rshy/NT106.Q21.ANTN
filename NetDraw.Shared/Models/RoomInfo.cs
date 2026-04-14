@@ -41,48 +41,6 @@ public class ChatMsg
     public bool IsSystem { get; set; }
 }
 
-public class AiCommandPayload
-{
-    [JsonProperty("prompt")]
-    public string Prompt { get; set; } = string.Empty;
-}
-
-public class AiResultPayload
-{
-    [JsonProperty("prompt")]
-    public string Prompt { get; set; } = string.Empty;
-
-    [JsonProperty("actions")]
-    public List<DrawAction> Actions { get; set; } = new();
-}
-
-public class CursorData
-{
-    [JsonProperty("x")]
-    public double X { get; set; }
-
-    [JsonProperty("y")]
-    public double Y { get; set; }
-}
-
-public class MoveObjectPayload
-{
-    [JsonProperty("actionId")]
-    public string ActionId { get; set; } = string.Empty;
-
-    [JsonProperty("deltaX")]
-    public double DeltaX { get; set; }
-
-    [JsonProperty("deltaY")]
-    public double DeltaY { get; set; }
-}
-
-public class DeleteObjectPayload
-{
-    [JsonProperty("actionId")]
-    public string ActionId { get; set; } = string.Empty;
-}
-
 /// <summary>
 /// File format cho Save/Load bản vẽ
 /// </summary>
@@ -104,5 +62,5 @@ public class DrawingFile
     public double CanvasHeight { get; set; } = 600;
 
     [JsonProperty("actions")]
-    public List<DrawAction> Actions { get; set; } = new();
+    public List<DrawActionBase> Actions { get; set; } = new();
 }

@@ -1,12 +1,13 @@
 using System.Windows;
 using System.Windows.Input;
 using NetDraw.Shared.Models;
+using NetDraw.Shared.Models.Actions;
 
 namespace NetDraw.Client;
 
 public partial class TemplateDialog : Window
 {
-    public List<DrawAction>? SelectedActions { get; private set; }
+    public List<DrawActionBase>? SelectedActions { get; private set; }
 
     public TemplateDialog()
     {
@@ -53,9 +54,9 @@ public partial class TemplateDialog : Window
 
     #region Template Generators
 
-    private static List<DrawAction> CreateGrid()
+    private static List<DrawActionBase> CreateGrid()
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         double spacing = 40;
         for (double x = 0; x <= 1600; x += spacing)
             actions.Add(MakeLine(x, 0, x, 1200, "#D0D0D0", 0.5));
@@ -64,9 +65,9 @@ public partial class TemplateDialog : Window
         return actions;
     }
 
-    private static List<DrawAction> CreateRuledLines()
+    private static List<DrawActionBase> CreateRuledLines()
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         // Margin line
         actions.Add(MakeLine(80, 0, 80, 1200, "#FFB3BA", 1));
         // Horizontal lines
@@ -75,16 +76,16 @@ public partial class TemplateDialog : Window
         return actions;
     }
 
-    private static List<DrawAction> CreateDotGrid()
+    private static List<DrawActionBase> CreateDotGrid()
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         double spacing = 30;
         for (double y = spacing; y < 1200; y += spacing)
             for (double x = spacing; x < 1600; x += spacing)
             {
-                actions.Add(new DrawAction
+                actions.Add(new ShapeAction
                 {
-                    Tool = DrawTool.Shape, ShapeType = ShapeType.Ellipse,
+                    ShapeType = ShapeType.Ellipse,
                     X = x - 1.5, Y = y - 1.5, Width = 3, Height = 3,
                     Color = "#B0B0B0", FillColor = "#B0B0B0", StrokeWidth = 0.5
                 });
@@ -92,9 +93,9 @@ public partial class TemplateDialog : Window
         return actions;
     }
 
-    private static List<DrawAction> CreateCoordinate()
+    private static List<DrawActionBase> CreateCoordinate()
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         double cx = 800, cy = 600;
         // Axes
         actions.Add(MakeArrowLine(40, cy, 1560, cy, "#333333", 2)); // X axis
@@ -113,9 +114,9 @@ public partial class TemplateDialog : Window
         return actions;
     }
 
-    private static List<DrawAction> CreateStoryboard()
+    private static List<DrawActionBase> CreateStoryboard()
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         double margin = 40, gap = 20;
         double cellW = (1600 - 2 * margin - gap) / 2;
         double cellH = (1200 - 2 * margin - 2 * gap) / 3;
@@ -130,9 +131,9 @@ public partial class TemplateDialog : Window
         return actions;
     }
 
-    private static List<DrawAction> CreateWireframe()
+    private static List<DrawActionBase> CreateWireframe()
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         // Browser chrome
         actions.Add(MakeRect(100, 50, 1400, 60, "#CCCCCC", 1.5));
         actions.Add(MakeRect(110, 65, 900, 30, "#E0E0E0", 1, "#F5F5F5"));
@@ -158,11 +159,11 @@ public partial class TemplateDialog : Window
         return actions;
     }
 
-    private static List<DrawAction> CreateFlowchartTemplate()
+    private static List<DrawActionBase> CreateFlowchartTemplate()
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         // Start oval
-        actions.Add(new DrawAction { Tool = DrawTool.Shape, ShapeType = ShapeType.Ellipse, X = 700, Y = 50, Width = 200, Height = 60, Color = "#2196F3", StrokeWidth = 2 });
+        actions.Add(new ShapeAction { ShapeType = ShapeType.Ellipse, X = 700, Y = 50, Width = 200, Height = 60, Color = "#2196F3", StrokeWidth = 2 });
         actions.Add(MakeText("Start", 770, 65, "#2196F3", 16));
         // Arrow down
         actions.Add(MakeArrowLine(800, 110, 800, 170, "#555555", 1.5));
@@ -188,14 +189,14 @@ public partial class TemplateDialog : Window
         actions.Add(MakeText("Process 2", 750, 532, "#4CAF50", 14));
         // End
         actions.Add(MakeArrowLine(800, 580, 800, 640, "#555555", 1.5));
-        actions.Add(new DrawAction { Tool = DrawTool.Shape, ShapeType = ShapeType.Ellipse, X = 700, Y = 640, Width = 200, Height = 60, Color = "#F44336", StrokeWidth = 2 });
+        actions.Add(new ShapeAction { ShapeType = ShapeType.Ellipse, X = 700, Y = 640, Width = 200, Height = 60, Color = "#F44336", StrokeWidth = 2 });
         actions.Add(MakeText("End", 778, 655, "#F44336", 16));
         return actions;
     }
 
-    private static List<DrawAction> CreateMusicSheet()
+    private static List<DrawActionBase> CreateMusicSheet()
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         for (int staff = 0; staff < 6; staff++)
         {
             double baseY = 80 + staff * 180;
@@ -213,9 +214,9 @@ public partial class TemplateDialog : Window
         return actions;
     }
 
-    private static List<DrawAction> CreateCalendar()
+    private static List<DrawActionBase> CreateCalendar()
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         double startX = 150, startY = 100, cellW = 180, cellH = 130;
         string[] days = { "CN", "T2", "T3", "T4", "T5", "T6", "T7" };
 
@@ -241,9 +242,9 @@ public partial class TemplateDialog : Window
         return actions;
     }
 
-    private static List<DrawAction> CreateComic()
+    private static List<DrawActionBase> CreateComic()
     {
-        var actions = new List<DrawAction>();
+        var actions = new List<DrawActionBase>();
         double margin = 30;
 
         // Row 1: 2 panels
@@ -265,39 +266,39 @@ public partial class TemplateDialog : Window
 
     #region Helper Methods
 
-    private static DrawAction MakeLine(double x1, double y1, double x2, double y2, string color, double width)
+    private static LineAction MakeLine(double x1, double y1, double x2, double y2, string color, double width)
     {
-        return new DrawAction
+        return new LineAction
         {
-            Tool = DrawTool.Line, Color = color, StrokeWidth = width,
-            Points = new List<PointData> { new(x1, y1), new(x2, y2) }
+            StartX = x1, StartY = y1, EndX = x2, EndY = y2,
+            Color = color, StrokeWidth = width
         };
     }
 
-    private static DrawAction MakeArrowLine(double x1, double y1, double x2, double y2, string color, double width)
+    private static LineAction MakeArrowLine(double x1, double y1, double x2, double y2, string color, double width)
     {
-        return new DrawAction
+        return new LineAction
         {
-            Tool = DrawTool.Arrow, Color = color, StrokeWidth = width,
-            Points = new List<PointData> { new(x1, y1), new(x2, y2) }
+            StartX = x1, StartY = y1, EndX = x2, EndY = y2,
+            Color = color, StrokeWidth = width, HasArrow = true
         };
     }
 
-    private static DrawAction MakeRect(double x, double y, double w, double h, string color, double width, string? fill = null)
+    private static ShapeAction MakeRect(double x, double y, double w, double h, string color, double width, string? fill = null)
     {
-        return new DrawAction
+        return new ShapeAction
         {
-            Tool = DrawTool.Shape, ShapeType = ShapeType.Rectangle,
+            ShapeType = ShapeType.Rect,
             X = x, Y = y, Width = w, Height = h,
             Color = color, StrokeWidth = width, FillColor = fill
         };
     }
 
-    private static DrawAction MakeText(string text, double x, double y, string color, double fontSize)
+    private static TextAction MakeText(string text, double x, double y, string color, double fontSize)
     {
-        return new DrawAction
+        return new TextAction
         {
-            Tool = DrawTool.Text, Text = text, X = x, Y = y,
+            Text = text, X = x, Y = y,
             Color = color, FontSize = fontSize
         };
     }
@@ -310,9 +311,9 @@ public class TemplateItem
     public string Name { get; set; }
     public string Icon { get; set; }
     public string Description { get; set; }
-    public Func<List<DrawAction>> Generator { get; set; }
+    public Func<List<DrawActionBase>> Generator { get; set; }
 
-    public TemplateItem(string name, string icon, string description, Func<List<DrawAction>> generator)
+    public TemplateItem(string name, string icon, string description, Func<List<DrawActionBase>> generator)
     {
         Name = name; Icon = icon; Description = description; Generator = generator;
     }

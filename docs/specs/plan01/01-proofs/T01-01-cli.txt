@@ -1,0 +1,17 @@
+Type: cli
+Command: dotnet build NetDraw.Shared/NetDraw.Shared.csproj
+Expected: Build succeeded with 0 errors
+Timestamp: 2026-04-13T00:00:00Z
+
+--- Output ---
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  NetDraw.Shared -> /run/host/mnt/Data/Workspace/1_Projects/Project-BasicNetprog-NetDraw/NetDraw.Shared/bin/Debug/net8.0/NetDraw.Shared.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.78
+
+Status: PASS
