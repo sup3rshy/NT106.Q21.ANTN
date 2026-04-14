@@ -35,6 +35,10 @@ public class RemotePresenceManager
             cursor = (cursorPath, label);
         }
 
+        // Always update the label text (name may arrive late or change)
+        if (cursor.Label.Child is TextBlock tb && tb.Text != userName)
+            tb.Text = userName;
+
         Canvas.SetLeft(cursor.Cursor, x);
         Canvas.SetTop(cursor.Cursor, y);
         Canvas.SetLeft(cursor.Label, x + 14);

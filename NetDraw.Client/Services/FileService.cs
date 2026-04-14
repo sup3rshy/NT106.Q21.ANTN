@@ -34,13 +34,19 @@ public class FileService : IFileService
 
     public void ExportPng(Canvas canvas, string path)
     {
-        var bounds = VisualTreeHelper.GetDescendantBounds(canvas);
-        if (bounds.IsEmpty) bounds = new Rect(0, 0, canvas.ActualWidth, canvas.ActualHeight);
+        double w = canvas.ActualWidth, h = canvas.ActualHeight;
+        if (w < 1 || h < 1) { w = canvas.Width; h = canvas.Height; }
 
-        var rtb = new RenderTargetBitmap(
-            (int)Math.Max(bounds.Width, 1), (int)Math.Max(bounds.Height, 1),
-            96, 96, PixelFormats.Pbgra32);
-        rtb.Render(canvas);
+        var rtb = new RenderTargetBitmap((int)w, (int)h, 96, 96, PixelFormats.Pbgra32);
+
+        // Render with white background (not the checkered pattern)
+        var visual = new DrawingVisual();
+        using (var ctx = visual.RenderOpen())
+        {
+            ctx.DrawRectangle(Brushes.White, null, new Rect(0, 0, w, h));
+            ctx.DrawRectangle(new VisualBrush(canvas), null, new Rect(0, 0, w, h));
+        }
+        rtb.Render(visual);
 
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(rtb));

@@ -24,20 +24,20 @@ public class DrawHandler : IMessageHandler
                 var drawPayload = MessageEnvelope.DeserializePayload<DrawPayload>(payload);
                 if (drawPayload?.Action == null) return;
                 _roomService.GetRoom(roomId)?.AddAction(drawPayload.Action);
-                var drawMsg = NetMessage<DrawPayload>.Create(MessageType.Draw, senderId, senderName, roomId, drawPayload);
+                var drawMsg = NetMessage<DrawPayload>.Create(MessageType.Draw, senderId, sender.UserName, roomId, drawPayload);
                 await _roomService.BroadcastToRoomAsync(roomId, drawMsg, exclude: sender);
                 break;
 
             case MessageType.DrawPreview:
                 var previewPayload = MessageEnvelope.DeserializePayload<DrawPayload>(payload);
                 if (previewPayload == null) return;
-                var previewMsg = NetMessage<DrawPayload>.Create(MessageType.DrawPreview, senderId, senderName, roomId, previewPayload);
+                var previewMsg = NetMessage<DrawPayload>.Create(MessageType.DrawPreview, senderId, sender.UserName, roomId, previewPayload);
                 await _roomService.BroadcastToRoomAsync(roomId, previewMsg, exclude: sender);
                 break;
 
             case MessageType.ClearCanvas:
                 _roomService.GetRoom(roomId)?.ClearHistory();
-                var clearMsg = NetMessage<SnapshotPayload>.Create(MessageType.ClearCanvas, senderId, senderName, roomId);
+                var clearMsg = NetMessage<SnapshotPayload>.Create(MessageType.ClearCanvas, senderId, sender.UserName, roomId);
                 await _roomService.BroadcastToRoomAsync(roomId, clearMsg, exclude: sender);
                 break;
 
@@ -54,7 +54,7 @@ public class DrawHandler : IMessageHandler
                 var redoPayload = MessageEnvelope.DeserializePayload<DrawPayload>(payload);
                 if (redoPayload?.Action == null) return;
                 _roomService.GetRoom(roomId)?.AddAction(redoPayload.Action);
-                var redoMsg = NetMessage<DrawPayload>.Create(MessageType.Redo, senderId, senderName, roomId, redoPayload);
+                var redoMsg = NetMessage<DrawPayload>.Create(MessageType.Redo, senderId, sender.UserName, roomId, redoPayload);
                 await _roomService.BroadcastToRoomAsync(roomId, redoMsg);
                 break;
         }

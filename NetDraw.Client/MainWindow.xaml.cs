@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -7,6 +8,7 @@ using NetDraw.Client.Infrastructure;
 using NetDraw.Client.Services;
 using NetDraw.Client.ViewModels;
 using NetDraw.Shared.Models;
+using NetDraw.Shared.Models.Actions;
 using NetDraw.Shared.Protocol;
 using NetDraw.Shared.Protocol.Payloads;
 using Newtonsoft.Json.Linq;
@@ -38,6 +40,9 @@ public partial class MainWindow : Window
     // Cursor throttle
     private DateTime _lastCursorSend = DateTime.MinValue;
 
+    // History panel
+    private readonly ObservableCollection<HistoryItem> _historyItems = new();
+
     public MainWindow(MainViewModel vm, WpfCanvasRenderer renderer, HistoryManager history, EventAggregator events)
     {
         InitializeComponent();
@@ -50,13 +55,15 @@ public partial class MainWindow : Window
 
         TxtUserName.Text = vm.UserName;
         HighlightTool(BtnPen);
+        LstHistory.ItemsSource = _historyItems;
+        LstUsers.ItemsSource = vm.UserList.Users;
 
         // Subscribe to VM events for canvas updates
-        events.Subscribe<RenderActionEvent>(e => RenderAction(e.Action));
-        events.Subscribe<ClearCanvasEvent>(_ => { DrawCanvas.Children.Clear(); ClearSelection(); _presence.ClearAll(DrawCanvas); });
-        events.Subscribe<RemoveActionEvent>(e => _renderer.RemoveAction(DrawCanvas, e.ActionId));
+        events.Subscribe<RenderActionEvent>(e => { RenderAction(e.Action); AddHistoryItem(e.Action); });
+        events.Subscribe<ClearCanvasEvent>(_ => { DrawCanvas.Children.Clear(); ClearSelection(); _presence.ClearAll(DrawCanvas); _historyItems.Clear(); });
+        events.Subscribe<RemoveActionEvent>(e => { _renderer.RemoveAction(DrawCanvas, e.ActionId); RemoveHistoryItem(e.ActionId); });
         events.Subscribe<MoveActionEvent>(e => MoveElementOnCanvas(e.ActionId, e.DeltaX, e.DeltaY));
-        events.Subscribe<SnapshotEvent>(e => { DrawCanvas.Children.Clear(); foreach (var a in e.Actions) RenderAction(a); });
+        events.Subscribe<SnapshotEvent>(e => { DrawCanvas.Children.Clear(); _historyItems.Clear(); foreach (var a in e.Actions) { RenderAction(a); AddHistoryItem(a); } });
         events.Subscribe<AppendChatEvent>(e => AppendChat(e.Text));
 
         // CursorMove and DrawPreview handled directly from network (needs Canvas reference)
@@ -80,6 +87,8 @@ public partial class MainWindow : Window
 
     private void HandleCursorMove(string senderId, string senderName, JObject? payload)
     {
+        // Bỏ qua cursor của chính mình
+        if (senderId == _vm.Canvas.UserId) return;
         var data = MessageEnvelope.DeserializePayload<CursorPayload>(payload);
         if (data != null)
             _presence.UpdateCursor(senderId, senderName, data.X, data.Y, data.Color, DrawCanvas);
@@ -132,11 +141,13 @@ public partial class MainWindow : Window
 
         if (_vm.Toolbar.ActiveTool == DrawTool.Text)
         {
-            var dialog = new InputDialog("Nhập text:", "Hello!") { Owner = this };
-            if (dialog.ShowDialog() == true && !string.IsNullOrEmpty(dialog.InputText))
+            var dialog = new TextInputDialog("Hello!") { Owner = this };
+            if (dialog.ShowDialog() == true)
             {
-                var action = _vm.Canvas.CreateTextAction(pos, dialog.InputText);
-                if (action != null) RenderAction(action);
+                var action = _vm.Canvas.CreateTextAction(pos, dialog.InputText,
+                    dialog.SelectedFontFamily, dialog.SelectedFontSize,
+                    dialog.IsBold, dialog.IsItalic, dialog.IsUnderline, dialog.IsStrikethrough);
+                if (action != null) { RenderAction(action); AddHistoryItem(action); }
             }
             return;
         }
@@ -202,7 +213,7 @@ public partial class MainWindow : Window
         _previewShape = null;
 
         var action = _vm.Canvas.FinishDraw(pos);
-        if (action != null) RenderAction(action);
+        if (action != null) { RenderAction(action); AddHistoryItem(action); }
     }
 
     #endregion
@@ -475,6 +486,7 @@ public partial class MainWindow : Window
             };
             _history.Add(action);
             RenderAction(action);
+            AddHistoryItem(action);
         }
         catch (Exception ex) { MessageBox.Show($"Lỗi: {ex.Message}", "Import ảnh"); }
     }
@@ -490,6 +502,7 @@ public partial class MainWindow : Window
             action.GroupId = groupId;
             _history.Add(action);
             RenderAction(action);
+            AddHistoryItem(action);
         }
     }
 
@@ -531,6 +544,40 @@ public partial class MainWindow : Window
 
     #region Helpers
 
+    private void AddHistoryItem(DrawActionBase action)
+    {
+        _historyItems.Add(new HistoryItem(action));
+        // Auto-scroll to bottom
+        if (_historyItems.Count > 0)
+            LstHistory.ScrollIntoView(_historyItems[^1]);
+    }
+
+    private void RemoveHistoryItem(string actionId)
+    {
+        for (int i = _historyItems.Count - 1; i >= 0; i--)
+            if (_historyItems[i].ActionId == actionId)
+            { _historyItems.RemoveAt(i); return; }
+    }
+
+    private void LstHistory_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // Click history item → highlight on canvas (select tool behavior)
+        if (LstHistory.SelectedItem is HistoryItem item)
+        {
+            ClearSelection();
+            var elements = DrawCanvas.Children.OfType<FrameworkElement>().Where(el => el.Tag?.ToString() == item.ActionId).ToList();
+            if (elements.Count > 0)
+            {
+                _selectedElement = elements[0];
+                _selectedAction = _history.GetAll().FirstOrDefault(a => a.Id == item.ActionId);
+                ShowSelectionRect(elements[0]);
+                _vm.Toolbar.ActiveTool = DrawTool.Select;
+                HighlightTool(BtnSelect);
+            }
+            LstHistory.SelectedItem = null;
+        }
+    }
+
     private void MoveElementOnCanvas(string actionId, double dx, double dy)
     {
         var elements = DrawCanvas.Children.OfType<FrameworkElement>().Where(e => e.Tag?.ToString() == actionId).ToList();
@@ -567,4 +614,48 @@ public partial class MainWindow : Window
     }
 
     #endregion
+}
+
+/// <summary>
+/// Item hiển thị trong Drawing History panel.
+/// </summary>
+public class HistoryItem
+{
+    public string ActionId { get; }
+    public string Description { get; }
+    public System.Windows.Media.Brush ColorBrush { get; }
+
+    public HistoryItem(DrawActionBase action)
+    {
+        ActionId = action.Id;
+        ColorBrush = WpfCanvasRenderer.BrushFromHex(action.Color);
+
+        Description = action switch
+        {
+            PenAction p => p.PenStyle switch
+            {
+                PenStyle.Calligraphy => $"Thư pháp ({p.Points.Count} pts)",
+                PenStyle.Highlighter => $"Highlight ({p.Points.Count} pts)",
+                PenStyle.Spray => $"Phun sơn ({p.Points.Count} pts)",
+                _ => $"Bút vẽ ({p.Points.Count} pts)"
+            },
+            LineAction l => l.HasArrow ? "Mũi tên" : "Đường thẳng",
+            ShapeAction s => s.ShapeType switch
+            {
+                ShapeType.Rect => "Chữ nhật",
+                ShapeType.Ellipse => "Elip",
+                ShapeType.Circle => "Hình tròn",
+                ShapeType.Triangle => "Tam giác",
+                ShapeType.Star => "Ngôi sao",
+                _ => "Hình"
+            } + (s.FillColor != null ? " (tô)" : ""),
+            TextAction t => $"Text: \"{Truncate(t.Text, 20)}\"",
+            EraseAction => "Tẩy",
+            ImageAction => "Ảnh import",
+            _ => "Khác"
+        };
+    }
+
+    private static string Truncate(string? s, int max) =>
+        string.IsNullOrEmpty(s) ? "" : s.Length <= max ? s : s[..max] + "...";
 }

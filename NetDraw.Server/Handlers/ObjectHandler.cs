@@ -21,7 +21,7 @@ public class ObjectHandler : IMessageHandler
         {
             var movePayload = MessageEnvelope.DeserializePayload<MoveObjectPayload>(payload);
             if (movePayload == null) return;
-            var msg = NetMessage<MoveObjectPayload>.Create(MessageType.MoveObject, senderId, senderName, roomId, movePayload);
+            var msg = NetMessage<MoveObjectPayload>.Create(MessageType.MoveObject, senderId, sender.UserName, roomId, movePayload);
             await _roomService.BroadcastToRoomAsync(roomId, msg, exclude: sender);
         }
         else
@@ -29,7 +29,7 @@ public class ObjectHandler : IMessageHandler
             var deletePayload = MessageEnvelope.DeserializePayload<DeleteObjectPayload>(payload);
             if (deletePayload == null) return;
             _roomService.GetRoom(roomId)?.RemoveActionById(deletePayload.ActionId);
-            var msg = NetMessage<DeleteObjectPayload>.Create(MessageType.DeleteObject, senderId, senderName, roomId, deletePayload);
+            var msg = NetMessage<DeleteObjectPayload>.Create(MessageType.DeleteObject, senderId, sender.UserName, roomId, deletePayload);
             await _roomService.BroadcastToRoomAsync(roomId, msg, exclude: sender);
         }
     }

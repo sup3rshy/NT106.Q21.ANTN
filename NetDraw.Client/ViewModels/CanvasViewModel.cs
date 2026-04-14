@@ -149,13 +149,19 @@ public class CanvasViewModel : ViewModelBase
         return action;
     }
 
-    public TextAction? CreateTextAction(Point pos, string text)
+    public TextAction? CreateTextAction(Point pos, string text,
+        string? fontFamily = null, double fontSize = 0,
+        bool bold = false, bool italic = false, bool underline = false, bool strikethrough = false)
     {
         if (!_network.IsConnected || string.IsNullOrEmpty(text)) return null;
         var action = new TextAction
         {
             UserId = UserId, Color = _toolbar.CurrentColor, Opacity = _toolbar.Opacity,
-            X = pos.X, Y = pos.Y, Text = text, FontSize = _toolbar.StrokeWidth * 5 + 10
+            X = pos.X, Y = pos.Y, Text = text,
+            FontSize = fontSize > 0 ? fontSize : _toolbar.StrokeWidth * 5 + 10,
+            FontFamily = fontFamily,
+            IsBold = bold, IsItalic = italic,
+            IsUnderline = underline, IsStrikethrough = strikethrough
         };
         History.Add(action);
         var msg = NetMessage<DrawPayload>.Create(MessageType.Draw, UserId, UserName, RoomId,

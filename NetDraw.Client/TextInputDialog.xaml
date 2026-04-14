@@ -1,0 +1,117 @@
+<Window x:Class="NetDraw.Client.TextInputDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Chèn Text" Height="340" Width="460"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="#1E1E2E">
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Text Input -->
+        <TextBlock Grid.Row="0" Text="Nội dung:" Foreground="#CDD6F4" FontSize="12" Margin="0,0,0,4"/>
+        <TextBox x:Name="TxtInput" Grid.Row="1" Background="#313244" Foreground="#CDD6F4" BorderBrush="#45475A"
+                 FontSize="14" Padding="8,5" Text="Hello!" AcceptsReturn="False"
+                 KeyDown="TxtInput_KeyDown"/>
+
+        <!-- Font Family & Size -->
+        <Grid Grid.Row="2" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="80"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="Font" Foreground="#A6ADC8" FontSize="10" Margin="0,0,0,2"/>
+                <ComboBox x:Name="CmbFont" Background="#313244" Foreground="#CDD6F4" FontSize="12"
+                          SelectedIndex="0" SelectionChanged="FontOption_Changed">
+                    <!-- Sans-serif -->
+                    <ComboBoxItem Tag="Segoe UI"><TextBlock Text="Segoe UI" FontFamily="Segoe UI"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Arial"><TextBlock Text="Arial" FontFamily="Arial"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Verdana"><TextBlock Text="Verdana" FontFamily="Verdana"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Tahoma"><TextBlock Text="Tahoma" FontFamily="Tahoma"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Trebuchet MS"><TextBlock Text="Trebuchet MS" FontFamily="Trebuchet MS"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Calibri"><TextBlock Text="Calibri" FontFamily="Calibri"/></ComboBoxItem>
+                    <!-- Serif -->
+                    <ComboBoxItem Tag="Times New Roman"><TextBlock Text="Times New Roman" FontFamily="Times New Roman"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Georgia"><TextBlock Text="Georgia" FontFamily="Georgia"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Cambria"><TextBlock Text="Cambria" FontFamily="Cambria"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Palatino Linotype"><TextBlock Text="Palatino Linotype" FontFamily="Palatino Linotype"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Book Antiqua"><TextBlock Text="Book Antiqua" FontFamily="Book Antiqua"/></ComboBoxItem>
+                    <!-- Monospace -->
+                    <ComboBoxItem Tag="Consolas"><TextBlock Text="Consolas" FontFamily="Consolas"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Courier New"><TextBlock Text="Courier New" FontFamily="Courier New"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Lucida Console"><TextBlock Text="Lucida Console" FontFamily="Lucida Console"/></ComboBoxItem>
+                    <!-- Display / Decorative -->
+                    <ComboBoxItem Tag="Impact"><TextBlock Text="Impact" FontFamily="Impact"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Comic Sans MS"><TextBlock Text="Comic Sans MS" FontFamily="Comic Sans MS"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Segoe Print"><TextBlock Text="Segoe Print" FontFamily="Segoe Print"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Segoe Script"><TextBlock Text="Segoe Script" FontFamily="Segoe Script"/></ComboBoxItem>
+                    <ComboBoxItem Tag="MV Boli"><TextBlock Text="MV Boli" FontFamily="MV Boli"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Ink Free"><TextBlock Text="Ink Free" FontFamily="Ink Free"/></ComboBoxItem>
+                    <!-- CJK / Vietnamese -->
+                    <ComboBoxItem Tag="Segoe UI"><TextBlock Text="Segoe UI (Tiếng Việt)" FontFamily="Segoe UI"/></ComboBoxItem>
+                    <ComboBoxItem Tag="Microsoft YaHei"><TextBlock Text="Microsoft YaHei" FontFamily="Microsoft YaHei"/></ComboBoxItem>
+                </ComboBox>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                <TextBlock Text="Size" Foreground="#A6ADC8" FontSize="10" Margin="0,0,0,2"/>
+                <ComboBox x:Name="CmbSize" Background="#313244" Foreground="#CDD6F4" FontSize="12"
+                          SelectedIndex="3" SelectionChanged="FontOption_Changed">
+                    <ComboBoxItem Content="10"/>
+                    <ComboBoxItem Content="12"/>
+                    <ComboBoxItem Content="14"/>
+                    <ComboBoxItem Content="18"/>
+                    <ComboBoxItem Content="24"/>
+                    <ComboBoxItem Content="32"/>
+                    <ComboBoxItem Content="48"/>
+                    <ComboBoxItem Content="64"/>
+                    <ComboBoxItem Content="72"/>
+                    <ComboBoxItem Content="96"/>
+                </ComboBox>
+            </StackPanel>
+        </Grid>
+
+        <!-- Style Buttons -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,10,0,0">
+            <ToggleButton x:Name="BtnBold" Content="B" Width="36" Height="30" FontWeight="Bold" FontSize="14"
+                          Background="#313244" Foreground="#CDD6F4" BorderBrush="#45475A" Cursor="Hand" Margin="0,0,4,0"
+                          ToolTip="In đậm" Checked="FontOption_Changed" Unchecked="FontOption_Changed"/>
+            <ToggleButton x:Name="BtnItalic" Content="I" Width="36" Height="30" FontStyle="Italic" FontSize="14"
+                          Background="#313244" Foreground="#CDD6F4" BorderBrush="#45475A" Cursor="Hand" Margin="0,0,4,0"
+                          ToolTip="In nghiêng" Checked="FontOption_Changed" Unchecked="FontOption_Changed"/>
+            <ToggleButton x:Name="BtnUnderline" Width="36" Height="30" FontSize="14"
+                          Background="#313244" Foreground="#CDD6F4" BorderBrush="#45475A" Cursor="Hand" Margin="0,0,4,0"
+                          ToolTip="Gạch chân" Checked="FontOption_Changed" Unchecked="FontOption_Changed">
+                <TextBlock Text="U" TextDecorations="Underline"/>
+            </ToggleButton>
+            <ToggleButton x:Name="BtnStrikethrough" Width="36" Height="30" FontSize="14"
+                          Background="#313244" Foreground="#CDD6F4" BorderBrush="#45475A" Cursor="Hand"
+                          ToolTip="Gạch ngang" Checked="FontOption_Changed" Unchecked="FontOption_Changed">
+                <TextBlock Text="S" TextDecorations="Strikethrough"/>
+            </ToggleButton>
+        </StackPanel>
+
+        <!-- Preview -->
+        <Border Grid.Row="4" Background="#313244" BorderBrush="#45475A" BorderThickness="1" CornerRadius="4" Margin="0,10,0,0" Padding="10">
+            <StackPanel>
+                <TextBlock Text="Xem trước:" Foreground="#6C7086" FontSize="10" Margin="0,0,0,4"/>
+                <TextBlock x:Name="TxtPreview" Text="Hello!" Foreground="#CDD6F4" FontSize="18"
+                           TextWrapping="Wrap" MaxHeight="60"/>
+            </StackPanel>
+        </Border>
+
+        <!-- OK / Cancel -->
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button Content="Chèn" Width="80" Margin="0,0,8,0" Background="#89B4FA" Foreground="#1E1E2E"
+                    FontWeight="Bold" BorderThickness="0" Padding="6" Click="BtnOk_Click" Cursor="Hand"/>
+            <Button Content="Hủy" Width="80" Background="#45475A" Foreground="#CDD6F4"
+                    BorderThickness="0" Padding="6" Click="BtnCancel_Click" Cursor="Hand"/>
+        </StackPanel>
+    </Grid>
+</Window>

@@ -18,6 +18,9 @@ public abstract class DrawActionBase
     [JsonProperty("userId")]
     public string UserId { get; set; } = string.Empty;
 
+    [JsonProperty("userName", NullValueHandling = NullValueHandling.Ignore)]
+    public string? UserName { get; set; }
+
     [JsonProperty("groupId", NullValueHandling = NullValueHandling.Ignore)]
     public string? GroupId { get; set; }
 

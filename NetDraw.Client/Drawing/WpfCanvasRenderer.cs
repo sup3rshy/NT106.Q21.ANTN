@@ -244,8 +244,18 @@ public class WpfCanvasRenderer : ICanvasRenderer
             Text = action.Text ?? "Text",
             Foreground = BrushFromHex(action.Color),
             FontSize = action.FontSize,
+            FontWeight = action.IsBold ? FontWeights.Bold : FontWeights.Normal,
+            FontStyle = action.IsItalic ? FontStyles.Italic : FontStyles.Normal,
             Tag = action.Id
         };
+        if (!string.IsNullOrEmpty(action.FontFamily))
+            tb.FontFamily = new FontFamily(action.FontFamily);
+
+        var decorations = new TextDecorationCollection();
+        if (action.IsUnderline) decorations.Add(TextDecorations.Underline);
+        if (action.IsStrikethrough) decorations.Add(TextDecorations.Strikethrough);
+        if (decorations.Count > 0) tb.TextDecorations = decorations;
+
         Canvas.SetLeft(tb, action.X);
         Canvas.SetTop(tb, action.Y);
         return tb;

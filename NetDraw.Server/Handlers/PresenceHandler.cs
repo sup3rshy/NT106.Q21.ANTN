@@ -18,7 +18,7 @@ public class PresenceHandler : IMessageHandler
     {
         var cursorPayload = MessageEnvelope.DeserializePayload<CursorPayload>(payload);
         if (cursorPayload == null) return;
-        var msg = NetMessage<CursorPayload>.Create(MessageType.CursorMove, senderId, senderName, roomId, cursorPayload);
+        var msg = NetMessage<CursorPayload>.Create(MessageType.CursorMove, senderId, sender.UserName, roomId, cursorPayload);
         await _roomService.BroadcastToRoomAsync(roomId, msg, exclude: sender);
     }
 }

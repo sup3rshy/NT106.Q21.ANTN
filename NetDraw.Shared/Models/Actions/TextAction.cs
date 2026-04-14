@@ -22,4 +22,19 @@ public class TextAction : DrawActionBase
 
     [JsonProperty("y")]
     public double Y { get; set; }
+
+    [JsonProperty("fontFamily", NullValueHandling = NullValueHandling.Ignore)]
+    public string? FontFamily { get; set; }
+
+    [JsonProperty("isBold")]
+    public bool IsBold { get; set; }
+
+    [JsonProperty("isItalic")]
+    public bool IsItalic { get; set; }
+
+    [JsonProperty("isUnderline")]
+    public bool IsUnderline { get; set; }
+
+    [JsonProperty("isStrikethrough")]
+    public bool IsStrikethrough { get; set; }
 }

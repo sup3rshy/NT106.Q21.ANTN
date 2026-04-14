@@ -106,7 +106,18 @@ public class MainViewModel : ViewModelBase
 
     private void OnMessageReceived(MessageType type, string senderId, string senderName, string roomId, JObject? payload)
     {
-        Application.Current.Dispatcher.Invoke(() => ProcessMessage(type, senderId, senderName, roomId, payload));
+        try
+        {
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                try { ProcessMessage(type, senderId, senderName, roomId, payload); }
+                catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[ProcessMessage Error] {type}: {ex.Message}\n{ex.StackTrace}"); }
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Dispatch Error] {ex.Message}");
+        }
     }
 
     private void ProcessMessage(MessageType type, string senderId, string senderName, string roomId, JObject? payload)
