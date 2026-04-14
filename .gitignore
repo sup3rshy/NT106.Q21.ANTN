@@ -1,0 +1,17 @@
+## .NET build output
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## IDE
+.vs/
+.vscode/
+.idea/
+
+## Tooling / local assistant state
+.superpowers/
+docs/superpowers/
+CLAUDE.md
