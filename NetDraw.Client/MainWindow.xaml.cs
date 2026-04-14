@@ -65,6 +65,11 @@ public partial class MainWindow : Window
         events.Subscribe<MoveActionEvent>(e => MoveElementOnCanvas(e.ActionId, e.DeltaX, e.DeltaY));
         events.Subscribe<SnapshotEvent>(e => { DrawCanvas.Children.Clear(); _historyItems.Clear(); foreach (var a in e.Actions) { RenderAction(a); AddHistoryItem(a); } });
         events.Subscribe<AppendChatEvent>(e => AppendChat(e.Text));
+        events.Subscribe<UserLeftEvent>(e =>
+        {
+            _presence.RemoveCursor(e.UserId, DrawCanvas);
+            _presence.ClearPreview(e.UserId, DrawCanvas);
+        });
 
         // CursorMove and DrawPreview handled directly from network (needs Canvas reference)
         vm.Network.MessageReceived += (type, senderId, senderName, roomId, payload) =>
@@ -165,7 +170,7 @@ public partial class MainWindow : Window
         {
             _lastCursorSend = DateTime.Now;
             var msg = NetMessage<CursorPayload>.Create(MessageType.CursorMove, _vm.Canvas.UserId, _vm.Canvas.UserName, _vm.Canvas.RoomId,
-                new CursorPayload { X = pos.X, Y = pos.Y });
+                new CursorPayload { X = pos.X, Y = pos.Y, Color = _vm.Canvas.UserColor });
             _ = _vm.Network.SendAsync(msg);
         }
 
@@ -347,6 +352,13 @@ public partial class MainWindow : Window
     private void BtnZoomOut_Click(object sender, RoutedEventArgs e) => SetZoom(_vm.Canvas.ZoomLevel - 0.1);
     private void BtnZoomReset_Click(object sender, RoutedEventArgs e) { _vm.Canvas.ResetZoom(); SetZoom(1.0); CanvasPan.X = 0; CanvasPan.Y = 0; }
 
+    private void BtnTogglePanel_Click(object sender, RoutedEventArgs e)
+    {
+        SidePanel.Visibility = SidePanel.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+    }
+
     #endregion
 
     #region Tool Selection (delegates to ToolbarVM)
@@ -377,8 +389,8 @@ public partial class MainWindow : Window
     private Button? _activeToolBtn;
     private void HighlightTool(Button btn)
     {
-        if (_activeToolBtn != null) _activeToolBtn.Background = WpfCanvasRenderer.BrushFromHex("#313244");
-        btn.Background = WpfCanvasRenderer.BrushFromHex("#89B4FA");
+        if (_activeToolBtn != null) _activeToolBtn.Tag = null;
+        btn.Tag = "active";
         _activeToolBtn = btn;
     }
 
@@ -481,7 +493,8 @@ public partial class MainWindow : Window
 
             var action = new NetDraw.Shared.Models.Actions.ImageAction
             {
-                UserId = _vm.Canvas.UserId, X = Math.Max(0, (DrawCanvas.Width - imgW) / 2),
+                UserId = _vm.Canvas.UserId, UserName = _vm.Canvas.UserName,
+                X = Math.Max(0, (DrawCanvas.Width - imgW) / 2),
                 Y = Math.Max(0, (DrawCanvas.Height - imgH) / 2), Width = imgW, Height = imgH, ImageData = base64
             };
             _history.Add(action);
@@ -623,12 +636,14 @@ public class HistoryItem
 {
     public string ActionId { get; }
     public string Description { get; }
+    public string UserLabel { get; }
     public System.Windows.Media.Brush ColorBrush { get; }
 
     public HistoryItem(DrawActionBase action)
     {
         ActionId = action.Id;
         ColorBrush = WpfCanvasRenderer.BrushFromHex(action.Color);
+        UserLabel = string.IsNullOrWhiteSpace(action.UserName) ? "?" : action.UserName!;
 
         Description = action switch
         {

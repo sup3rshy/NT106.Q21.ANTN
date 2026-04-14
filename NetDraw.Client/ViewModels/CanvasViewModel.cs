@@ -31,6 +31,7 @@ public class CanvasViewModel : ViewModelBase
 
     public string UserId { get; set; } = "";
     public string UserName { get; set; } = "";
+    public string UserColor { get; set; } = "#000000";
     public string RoomId { get; set; } = "";
 
     public double ZoomLevel { get => _zoomLevel; set => SetProperty(ref _zoomLevel, Math.Clamp(value, 0.2, 5.0)); }
@@ -65,7 +66,7 @@ public class CanvasViewModel : ViewModelBase
             DrawTool.Pen or DrawTool.Calligraphy or DrawTool.Highlighter or DrawTool.Spray =>
                 new PenAction
                 {
-                    UserId = UserId, Color = _toolbar.CurrentColor, StrokeWidth = _toolbar.StrokeWidth,
+                    UserId = UserId, UserName = UserName, Color = _toolbar.CurrentColor, StrokeWidth = _toolbar.StrokeWidth,
                     Opacity = _toolbar.Opacity, DashStyle = _toolbar.DashStyle,
                     PenStyle = _toolbar.GetPenStyle(),
                     Points = { new PointData(pos.X, pos.Y) }
@@ -73,13 +74,13 @@ public class CanvasViewModel : ViewModelBase
             DrawTool.Eraser =>
                 new EraseAction
                 {
-                    UserId = UserId, EraserSize = _toolbar.StrokeWidth * 5,
+                    UserId = UserId, UserName = UserName, EraserSize = _toolbar.StrokeWidth * 5,
                     Points = { new PointData(pos.X, pos.Y) }
                 },
             DrawTool.Line or DrawTool.Arrow =>
                 new LineAction
                 {
-                    UserId = UserId, Color = _toolbar.CurrentColor, StrokeWidth = _toolbar.StrokeWidth,
+                    UserId = UserId, UserName = UserName, Color = _toolbar.CurrentColor, StrokeWidth = _toolbar.StrokeWidth,
                     Opacity = _toolbar.Opacity, DashStyle = _toolbar.DashStyle,
                     HasArrow = tool == DrawTool.Arrow,
                     StartX = pos.X, StartY = pos.Y, EndX = pos.X, EndY = pos.Y
@@ -87,7 +88,7 @@ public class CanvasViewModel : ViewModelBase
             DrawTool.Shape =>
                 new ShapeAction
                 {
-                    UserId = UserId, Color = _toolbar.CurrentColor, StrokeWidth = _toolbar.StrokeWidth,
+                    UserId = UserId, UserName = UserName, Color = _toolbar.CurrentColor, StrokeWidth = _toolbar.StrokeWidth,
                     Opacity = _toolbar.Opacity, DashStyle = _toolbar.DashStyle,
                     ShapeType = _toolbar.ActiveShapeType,
                     FillColor = _toolbar.Fill ? _toolbar.CurrentColor : null,
@@ -156,7 +157,7 @@ public class CanvasViewModel : ViewModelBase
         if (!_network.IsConnected || string.IsNullOrEmpty(text)) return null;
         var action = new TextAction
         {
-            UserId = UserId, Color = _toolbar.CurrentColor, Opacity = _toolbar.Opacity,
+            UserId = UserId, UserName = UserName, Color = _toolbar.CurrentColor, Opacity = _toolbar.Opacity,
             X = pos.X, Y = pos.Y, Text = text,
             FontSize = fontSize > 0 ? fontSize : _toolbar.StrokeWidth * 5 + 10,
             FontFamily = fontFamily,

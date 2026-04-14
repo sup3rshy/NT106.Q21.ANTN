@@ -39,6 +39,18 @@ public class RoomHandler : IMessageHandler
 
     private async Task HandleJoinAsync(string senderId, string senderName, string roomId, ClientHandler sender)
     {
+        // If client is already in a room, leave it first so they don't appear in two rooms
+        // or duplicate within the same room when re-joining.
+        var previousRoomId = _roomService.GetRoomIdForClient(sender);
+        if (previousRoomId != null)
+        {
+            _roomService.RemoveUserFromRoom(sender);
+            var leftMsg = NetMessage<UserPayload>.Create(
+                MessageType.UserLeft, senderId, sender.UserName, previousRoomId,
+                new UserPayload { User = new UserInfo { UserId = senderId, UserName = sender.UserName } });
+            await _roomService.BroadcastToRoomAsync(previousRoomId, leftMsg);
+        }
+
         var user = new UserInfo { UserId = senderId, UserName = senderName, Color = sender.UserColor };
         sender.UserId = senderId;
         sender.UserName = senderName;

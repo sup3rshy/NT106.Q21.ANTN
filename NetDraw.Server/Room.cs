@@ -17,7 +17,12 @@ public class Room
 
     public void AddClient(ClientHandler client, UserInfo user)
     {
-        lock (_lock) _clients.Add((client, user));
+        lock (_lock)
+        {
+            // Deduplicate: if the same client or same UserId is already present, remove it first
+            _clients.RemoveAll(c => c.Client == client || c.User.UserId == user.UserId);
+            _clients.Add((client, user));
+        }
     }
 
     public void RemoveClient(ClientHandler client)

@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using System.Text;
 using NetDraw.Shared.Models;
+using NetDraw.Shared.Protocol;
 using NetDraw.Shared.Protocol.Payloads;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -56,11 +57,20 @@ public class McpClient : IMcpClient
         if (!IsConnected || _writer == null || _reader == null) return null;
         try
         {
-            var request = new { type = "ai_command", prompt = command, roomId };
-            await _writer.WriteLineAsync(JsonConvert.SerializeObject(request));
+            var request = NetMessage<AiCommandPayload>.Create(
+                MessageType.AiCommand,
+                "server",
+                "Server",
+                roomId,
+                new AiCommandPayload { Prompt = command });
+
+            await _writer.WriteAsync(request.Serialize());
+            
             var response = await _reader.ReadLineAsync();
             if (response == null) return null;
-            return JObject.Parse(response).ToObject<AiResultPayload>(JsonSerializer.Create(Settings));
+
+            var envelope = MessageEnvelope.Deserialize<AiResultPayload>(response);
+            return envelope?.Payload;
         }
         catch (Exception ex)
         {

@@ -60,8 +60,46 @@ public class WpfCanvasRenderer : ICanvasRenderer
     private static UIElement? RenderPen(PenAction action)
     {
         if (action.Points.Count < 2) return null;
-        var polyline = new Polyline
+
+        // For very short strokes, fall back to a simple line segment
+        if (action.Points.Count == 2)
         {
+            return new Line
+            {
+                X1 = action.Points[0].X, Y1 = action.Points[0].Y,
+                X2 = action.Points[1].X, Y2 = action.Points[1].Y,
+                Stroke = BrushFromHex(action.Color),
+                StrokeThickness = action.StrokeWidth,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeDashArray = GetDashArray(action.DashStyle),
+                Tag = action.Id
+            };
+        }
+
+        // Smooth pen stroke using Catmull-Rom -> cubic Bezier conversion
+        var pts = action.Points;
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(new Point(pts[0].X, pts[0].Y), isFilled: false, isClosed: false);
+            for (int i = 0; i < pts.Count - 1; i++)
+            {
+                var p0 = i == 0 ? pts[0] : pts[i - 1];
+                var p1 = pts[i];
+                var p2 = pts[i + 1];
+                var p3 = i + 2 < pts.Count ? pts[i + 2] : pts[i + 1];
+
+                var cp1 = new Point(p1.X + (p2.X - p0.X) / 6.0, p1.Y + (p2.Y - p0.Y) / 6.0);
+                var cp2 = new Point(p2.X - (p3.X - p1.X) / 6.0, p2.Y - (p3.Y - p1.Y) / 6.0);
+                ctx.BezierTo(cp1, cp2, new Point(p2.X, p2.Y), isStroked: true, isSmoothJoin: true);
+            }
+        }
+        geometry.Freeze();
+
+        return new Path
+        {
+            Data = geometry,
             Stroke = BrushFromHex(action.Color),
             StrokeThickness = action.StrokeWidth,
             StrokeLineJoin = PenLineJoin.Round,
@@ -70,8 +108,6 @@ public class WpfCanvasRenderer : ICanvasRenderer
             StrokeDashArray = GetDashArray(action.DashStyle),
             Tag = action.Id
         };
-        foreach (var pt in action.Points) polyline.Points.Add(new Point(pt.X, pt.Y));
-        return polyline;
     }
 
     private static UIElement? RenderCalligraphy(PenAction action)
@@ -100,16 +136,49 @@ public class WpfCanvasRenderer : ICanvasRenderer
         if (action.Points.Count < 2) return null;
         var color = (Color)ColorConverter.ConvertFromString(action.Color);
         var semi = Color.FromArgb(100, color.R, color.G, color.B);
-        var polyline = new Polyline
+        var brush = new SolidColorBrush(semi);
+        double thick = action.StrokeWidth * 4;
+
+        if (action.Points.Count == 2)
         {
-            Stroke = new SolidColorBrush(semi),
-            StrokeThickness = action.StrokeWidth * 4,
+            return new Line
+            {
+                X1 = action.Points[0].X, Y1 = action.Points[0].Y,
+                X2 = action.Points[1].X, Y2 = action.Points[1].Y,
+                Stroke = brush, StrokeThickness = thick,
+                StrokeStartLineCap = PenLineCap.Flat, StrokeEndLineCap = PenLineCap.Flat,
+                Tag = action.Id
+            };
+        }
+
+        var pts = action.Points;
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(new Point(pts[0].X, pts[0].Y), isFilled: false, isClosed: false);
+            for (int i = 0; i < pts.Count - 1; i++)
+            {
+                var p0 = i == 0 ? pts[0] : pts[i - 1];
+                var p1 = pts[i];
+                var p2 = pts[i + 1];
+                var p3 = i + 2 < pts.Count ? pts[i + 2] : pts[i + 1];
+                var cp1 = new Point(p1.X + (p2.X - p0.X) / 6.0, p1.Y + (p2.Y - p0.Y) / 6.0);
+                var cp2 = new Point(p2.X - (p3.X - p1.X) / 6.0, p2.Y - (p3.Y - p1.Y) / 6.0);
+                ctx.BezierTo(cp1, cp2, new Point(p2.X, p2.Y), isStroked: true, isSmoothJoin: true);
+            }
+        }
+        geometry.Freeze();
+
+        return new Path
+        {
+            Data = geometry,
+            Stroke = brush,
+            StrokeThickness = thick,
             StrokeLineJoin = PenLineJoin.Round,
-            StrokeStartLineCap = PenLineCap.Flat, StrokeEndLineCap = PenLineCap.Flat,
+            StrokeStartLineCap = PenLineCap.Flat,
+            StrokeEndLineCap = PenLineCap.Flat,
             Tag = action.Id
         };
-        foreach (var pt in action.Points) polyline.Points.Add(new Point(pt.X, pt.Y));
-        return polyline;
     }
 
     private static UIElement? RenderSpray(PenAction action)

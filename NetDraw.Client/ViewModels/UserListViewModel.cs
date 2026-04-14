@@ -29,7 +29,10 @@ public class UserListViewModel : ViewModelBase
         events.Subscribe<UserListUpdatedEvent>(e =>
         {
             Users.Clear();
-            foreach (var u in e.Users) Users.Add(u);
+            var seen = new HashSet<string>();
+            foreach (var u in e.Users)
+                if (seen.Add(u.UserId))
+                    Users.Add(u);
         });
     }
 }

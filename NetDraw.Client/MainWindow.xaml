@@ -9,377 +9,487 @@
         WindowStartupLocation="CenterScreen"
         Background="#1E1E2E">
     <Window.Resources>
+        <!-- Color Palette (Fluent-inspired dark) -->
+        <SolidColorBrush x:Key="AccentBrush" Color="#89B4FA"/>
+        <SolidColorBrush x:Key="AccentSoftBrush" Color="#3F4E7A"/>
+        <SolidColorBrush x:Key="SurfaceBrush" Color="#1E1E2E"/>
+        <SolidColorBrush x:Key="Surface2Brush" Color="#181825"/>
+        <SolidColorBrush x:Key="Surface3Brush" Color="#11111B"/>
+        <SolidColorBrush x:Key="ElevatedBrush" Color="#2A2A3C"/>
+        <SolidColorBrush x:Key="HoverBrush" Color="#3A3A4E"/>
+        <SolidColorBrush x:Key="BorderBrushSoft" Color="#313244"/>
+        <SolidColorBrush x:Key="BorderBrushMed" Color="#45475A"/>
+        <SolidColorBrush x:Key="TextPrimary" Color="#CDD6F4"/>
+        <SolidColorBrush x:Key="TextMuted" Color="#A6ADC8"/>
+        <SolidColorBrush x:Key="TextFaint" Color="#6C7086"/>
+
+        <!-- Global font -->
+        <Style TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
+        </Style>
+
+        <!-- Tool Button (horizontal, icon + label) with rounded corners, smooth hover, active state -->
         <Style x:Key="ToolBtn" TargetType="Button">
-            <Setter Property="Height" Value="32"/>
-            <Setter Property="Margin" Value="2"/>
-            <Setter Property="Padding" Value="6,2"/>
-            <Setter Property="Background" Value="#313244"/>
-            <Setter Property="Foreground" Value="#CDD6F4"/>
-            <Setter Property="BorderBrush" Value="#45475A"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Margin" Value="0,2"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#45475A"/>
-                </Trigger>
-            </Style.Triggers>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftBrush}"/>
+                            </Trigger>
+                            <Trigger Property="Tag" Value="active">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftBrush}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
-        <Style x:Key="SmallToolBtn" TargetType="Button">
-            <Setter Property="Width" Value="32"/>
-            <Setter Property="Height" Value="32"/>
+
+        <!-- Icon-only tool button (for bottom toolbar), with active state -->
+        <Style x:Key="IconToolBtn" TargetType="Button">
+            <Setter Property="Width" Value="40"/>
+            <Setter Property="Height" Value="40"/>
             <Setter Property="Margin" Value="1"/>
-            <Setter Property="Background" Value="#313244"/>
-            <Setter Property="Foreground" Value="#CDD6F4"/>
-            <Setter Property="BorderBrush" Value="#45475A"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontSize" Value="17"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#45475A"/>
-                </Trigger>
-            </Style.Triggers>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftBrush}"/>
+                            </Trigger>
+                            <Trigger Property="Tag" Value="active">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftBrush}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="#FFFFFF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
+
+        <!-- Small Icon Button (square, for actions) -->
+        <Style x:Key="SmallToolBtn" TargetType="Button">
+            <Setter Property="Width" Value="34"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="Margin" Value="2"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource HoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentSoftBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Color Swatch Button: circular, ring on hover -->
         <Style x:Key="ColorBtn" TargetType="Button">
-            <Setter Property="Width" Value="26"/>
-            <Setter Property="Height" Value="26"/>
-            <Setter Property="Margin" Value="1"/>
-            <Setter Property="BorderBrush" Value="#45475A"/>
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Margin" Value="3,0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="2"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="BorderBrush" Value="#FFFFFF"/>
-                </Trigger>
-            </Style.Triggers>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Ellipse x:Name="Ring" Stroke="Transparent" StrokeThickness="2"/>
+                            <Ellipse x:Name="Swatch" Fill="{TemplateBinding Background}" Margin="3"/>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Ring" Property="Stroke" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
+
+        <!-- Primary accent button (Connect / Join / Send) -->
+        <Style x:Key="AccentBtn" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="#1E1E2E"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="12,4"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#A8C7FF"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#6A93DD"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Styled TextBox -->
+        <Style TargetType="TextBox" x:Key="InputBox">
+            <Setter Property="Background" Value="{StaticResource ElevatedBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrushSoft}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Padding" Value="8,5"/>
+            <Setter Property="CaretBrush" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <ScrollViewer x:Name="PART_ContentHost" Padding="{TemplateBinding Padding}"
+                                          VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsFocused" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource BorderBrushMed}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Panel card -->
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource Surface3Brush}"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Margin" Value="10,4"/>
+        </Style>
+
+        <!-- Section label -->
         <Style x:Key="SectionLabel" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#6C7086"/>
+            <Setter Property="Foreground" Value="{StaticResource TextFaint}"/>
             <Setter Property="FontSize" Value="10"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Margin" Value="0,6,0,3"/>
-            <Setter Property="TextAlignment" Value="Center"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="2,10,2,4"/>
+            <Setter Property="TextAlignment" Value="Left"/>
+        </Style>
+
+        <!-- Thin scrollbar -->
+        <Style TargetType="ScrollBar">
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="Background" Value="Transparent"/>
         </Style>
     </Window.Resources>
 
     <Grid>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="140"/>     <!-- Toolbar wider -->
-            <ColumnDefinition Width="*"/>       <!-- Canvas -->
-            <ColumnDefinition Width="260"/>     <!-- Sidebar -->
-        </Grid.ColumnDefinitions>
-
-        <!-- === TOOLBAR (Left) === -->
-        <Border Grid.Column="0" Background="#181825" BorderBrush="#313244" BorderThickness="0,0,1,0">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Margin="6,8,6,8">
-
-                    <!-- Draw Tools -->
-                    <TextBlock Text="CÔNG CỤ" Style="{StaticResource SectionLabel}"/>
-                    <Button x:Name="BtnSelect" Style="{StaticResource ToolBtn}" Click="BtnSelect_Click" ToolTip="V">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="⊡" Width="20" TextAlignment="Center"/><TextBlock Text="Chọn"/></StackPanel>
-                    </Button>
-                    <Button x:Name="BtnPen" Style="{StaticResource ToolBtn}" Click="BtnPen_Click" ToolTip="P">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="✏" Width="20" TextAlignment="Center"/><TextBlock Text="Bút vẽ"/></StackPanel>
-                    </Button>
-                    <Button x:Name="BtnLine" Style="{StaticResource ToolBtn}" Click="BtnLine_Click" ToolTip="L">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="╱" Width="20" TextAlignment="Center"/><TextBlock Text="Đường thẳng"/></StackPanel>
-                    </Button>
-                    <Button x:Name="BtnArrow" Style="{StaticResource ToolBtn}" Click="BtnArrow_Click" ToolTip="A">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="→" Width="20" TextAlignment="Center"/><TextBlock Text="Mũi tên"/></StackPanel>
-                    </Button>
-                    <Button x:Name="BtnRect" Style="{StaticResource ToolBtn}" Click="BtnRect_Click" ToolTip="R">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="▭" Width="20" TextAlignment="Center"/><TextBlock Text="Chữ nhật"/></StackPanel>
-                    </Button>
-                    <Button x:Name="BtnCircle" Style="{StaticResource ToolBtn}" Click="BtnCircle_Click" ToolTip="C">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="○" Width="20" TextAlignment="Center"/><TextBlock Text="Hình tròn"/></StackPanel>
-                    </Button>
-                    <Button x:Name="BtnEllipse" Style="{StaticResource ToolBtn}" Click="BtnEllipse_Click" ToolTip="E">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="⬭" Width="20" TextAlignment="Center"/><TextBlock Text="Elip"/></StackPanel>
-                    </Button>
-                    <Button x:Name="BtnTriangle" Style="{StaticResource ToolBtn}" Click="BtnTriangle_Click" ToolTip="T">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="△" Width="20" TextAlignment="Center"/><TextBlock Text="Tam giác"/></StackPanel>
-                    </Button>
-                    <Button x:Name="BtnStar" Style="{StaticResource ToolBtn}" Click="BtnStar_Click">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="☆" Width="20" TextAlignment="Center"/><TextBlock Text="Ngôi sao"/></StackPanel>
-                    </Button>
-                    <Button x:Name="BtnText" Style="{StaticResource ToolBtn}" Click="BtnText_Click">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="A" Width="20" TextAlignment="Center" FontWeight="Bold"/><TextBlock Text="Chèn text"/></StackPanel>
-                    </Button>
-                    <Button x:Name="BtnCalligraphy" Style="{StaticResource ToolBtn}" Click="BtnCalligraphy_Click">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="🖋" Width="20" TextAlignment="Center"/><TextBlock Text="Thư pháp"/></StackPanel>
-                    </Button>
-                    <Button x:Name="BtnHighlighter" Style="{StaticResource ToolBtn}" Click="BtnHighlighter_Click" ToolTip="H">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="🖍" Width="20" TextAlignment="Center"/><TextBlock Text="Highlight"/></StackPanel>
-                    </Button>
-                    <Button x:Name="BtnSpray" Style="{StaticResource ToolBtn}" Click="BtnSpray_Click">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="💨" Width="20" TextAlignment="Center"/><TextBlock Text="Phun sơn"/></StackPanel>
-                    </Button>
-                    <Button x:Name="BtnEraser" Style="{StaticResource ToolBtn}" Click="BtnEraser_Click" ToolTip="X">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="⌫" Width="20" TextAlignment="Center"/><TextBlock Text="Tẩy"/></StackPanel>
-                    </Button>
-
-                    <!-- Stroke Settings -->
-                    <TextBlock Text="NÉT VẼ" Style="{StaticResource SectionLabel}"/>
-                    <Grid Margin="0,2">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="28"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Size" Foreground="#A6ADC8" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <Slider x:Name="SliderSize" Grid.Column="1" Minimum="1" Maximum="30" Value="2" VerticalAlignment="Center"
-                                ValueChanged="SliderSize_ValueChanged"/>
-                        <TextBlock x:Name="TxtSize" Grid.Column="2" Text="2" Foreground="#CDD6F4" FontSize="11" VerticalAlignment="Center" TextAlignment="Right"/>
-                    </Grid>
-                    <Grid Margin="0,2">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="28"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Opacity" Foreground="#A6ADC8" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <Slider x:Name="SliderOpacity" Grid.Column="1" Minimum="0.1" Maximum="1.0" Value="1.0" VerticalAlignment="Center"
-                                ValueChanged="SliderOpacity_ValueChanged"/>
-                        <TextBlock x:Name="TxtOpacity" Grid.Column="2" Text="100%" Foreground="#CDD6F4" FontSize="10" VerticalAlignment="Center" TextAlignment="Right"/>
-                    </Grid>
-                    <Grid Margin="0,4">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="Style" Foreground="#A6ADC8" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <ComboBox x:Name="CmbDash" Grid.Column="1" FontSize="11" SelectedIndex="0" SelectionChanged="CmbDash_SelectionChanged"
-                                  Background="#313244" Foreground="#CDD6F4">
-                            <ComboBoxItem Content="━━ Nét liền"/>
-                            <ComboBoxItem Content="╌╌ Nét đứt"/>
-                            <ComboBoxItem Content="···· Nét chấm"/>
-                        </ComboBox>
-                    </Grid>
-                    <CheckBox x:Name="ChkFill" Content="Tô màu nền (Fill)" Foreground="#CDD6F4" FontSize="11" Margin="0,4"/>
-
-                    <!-- Actions -->
-                    <TextBlock Text="HÀNH ĐỘNG" Style="{StaticResource SectionLabel}"/>
-                    <WrapPanel HorizontalAlignment="Center">
-                        <Button Style="{StaticResource SmallToolBtn}" Content="↩" ToolTip="Undo (Ctrl+Z)" Click="BtnUndo_Click"/>
-                        <Button Style="{StaticResource SmallToolBtn}" Content="↪" ToolTip="Redo (Ctrl+Y)" Click="BtnRedo_Click"/>
-                        <Button Style="{StaticResource SmallToolBtn}" Content="🗑" ToolTip="Xóa tất cả" Click="BtnClear_Click"/>
-                        <Button Style="{StaticResource SmallToolBtn}" Content="💾" ToolTip="Lưu (Ctrl+S)" Click="BtnSave_Click"/>
-                        <Button Style="{StaticResource SmallToolBtn}" Content="📂" ToolTip="Mở (Ctrl+O)" Click="BtnLoad_Click"/>
-                        <Button Style="{StaticResource SmallToolBtn}" Content="🖼" ToolTip="Xuất PNG" Click="BtnExport_Click"/>
-                    </WrapPanel>
-
-                    <!-- Image -->
-                    <TextBlock Text="HÌNH ẢNH" Style="{StaticResource SectionLabel}"/>
-                    <Button Style="{StaticResource ToolBtn}" Click="BtnImportImage_Click" ToolTip="Import ảnh vào canvas">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="📷" Width="20" TextAlignment="Center"/><TextBlock Text="Import ảnh"/></StackPanel>
-                    </Button>
-                    <Button Style="{StaticResource ToolBtn}" Click="BtnTemplate_Click" ToolTip="Chọn mẫu template">
-                        <StackPanel Orientation="Horizontal"><TextBlock Text="📋" Width="20" TextAlignment="Center"/><TextBlock Text="Template"/></StackPanel>
-                    </Button>
-                </StackPanel>
-            </ScrollViewer>
+        <!-- === FULL-SCREEN CANVAS (base layer) === -->
+        <Border x:Name="CanvasWrapper" Background="#E6E6E6" ClipToBounds="True"
+                MouseWheel="Canvas_MouseWheel"
+                MouseRightButtonDown="Canvas_RightButtonDown"
+                MouseRightButtonUp="Canvas_RightButtonUp"
+                MouseMove="CanvasWrapper_MouseMove">
+            <Canvas x:Name="DrawCanvas"
+                    Width="3000" Height="2000"
+                    MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
+                    MouseMove="Canvas_MouseMove"
+                    MouseLeftButtonUp="Canvas_MouseLeftButtonUp"
+                    ClipToBounds="True">
+                <Canvas.Background>
+                    <DrawingBrush TileMode="Tile" Viewport="0,0,24,24" ViewportUnits="Absolute">
+                        <DrawingBrush.Drawing>
+                            <DrawingGroup>
+                                <GeometryDrawing Brush="#FFFFFF">
+                                    <GeometryDrawing.Geometry><RectangleGeometry Rect="0,0,24,24"/></GeometryDrawing.Geometry>
+                                </GeometryDrawing>
+                                <GeometryDrawing Brush="#EAEAEA">
+                                    <GeometryDrawing.Pen><Pen Thickness="1" Brush="#EAEAEA"/></GeometryDrawing.Pen>
+                                    <GeometryDrawing.Geometry>
+                                        <GeometryGroup>
+                                            <LineGeometry StartPoint="0,0" EndPoint="24,0"/>
+                                            <LineGeometry StartPoint="0,0" EndPoint="0,24"/>
+                                        </GeometryGroup>
+                                    </GeometryDrawing.Geometry>
+                                </GeometryDrawing>
+                            </DrawingGroup>
+                        </DrawingBrush.Drawing>
+                    </DrawingBrush>
+                </Canvas.Background>
+                <Canvas.RenderTransform>
+                    <TransformGroup>
+                        <ScaleTransform x:Name="CanvasScale" ScaleX="1" ScaleY="1"/>
+                        <TranslateTransform x:Name="CanvasPan" X="0" Y="0"/>
+                    </TransformGroup>
+                </Canvas.RenderTransform>
+            </Canvas>
         </Border>
 
-        <!-- === CANVAS (Center) === -->
-        <Grid Grid.Column="1">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="38"/>    <!-- Color bar -->
-                <RowDefinition Height="*"/>      <!-- Canvas -->
-                <RowDefinition Height="40"/>     <!-- AI bar -->
-            </Grid.RowDefinitions>
+        <!-- === TOP-LEFT: Status pill === -->
+        <Border VerticalAlignment="Top" HorizontalAlignment="Left" Margin="16,16,0,0"
+                Background="#E62A2A3C" CornerRadius="24" Padding="14,8">
+            <Border.Effect><DropShadowEffect Color="Black" Opacity="0.3" BlurRadius="14" ShadowDepth="2"/></Border.Effect>
+            <StackPanel Orientation="Horizontal">
+                <Ellipse Width="8" Height="8" Fill="#F38BA8" VerticalAlignment="Center" x:Name="StatusDot" Margin="0,0,8,0"/>
+                <TextBlock x:Name="TxtStatus" Text="{Binding StatusText}" Foreground="#CDD6F4" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
+                <TextBlock Text=" · " Foreground="#6C7086" VerticalAlignment="Center" FontSize="12"/>
+                <TextBlock x:Name="TxtRoomName" Text="offline" Foreground="#A6E3A1" VerticalAlignment="Center" FontSize="12"/>
+            </StackPanel>
+        </Border>
 
-            <!-- Color Palette + Zoom -->
-            <Border Grid.Row="0" Background="#181825" BorderBrush="#313244" BorderThickness="0,0,0,1">
-                <Grid>
-                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0">
-                        <Button Style="{StaticResource ColorBtn}" Background="#000000" Tag="#000000" Click="ColorBtn_Click"/>
-                        <Button Style="{StaticResource ColorBtn}" Background="#FFFFFF" Tag="#FFFFFF" Click="ColorBtn_Click"/>
-                        <Button Style="{StaticResource ColorBtn}" Background="#FF0000" Tag="#FF0000" Click="ColorBtn_Click"/>
-                        <Button Style="{StaticResource ColorBtn}" Background="#FF6B6B" Tag="#FF6B6B" Click="ColorBtn_Click"/>
-                        <Button Style="{StaticResource ColorBtn}" Background="#FF8C00" Tag="#FF8C00" Click="ColorBtn_Click"/>
-                        <Button Style="{StaticResource ColorBtn}" Background="#FFD700" Tag="#FFD700" Click="ColorBtn_Click"/>
-                        <Button Style="{StaticResource ColorBtn}" Background="#00FF00" Tag="#00FF00" Click="ColorBtn_Click"/>
-                        <Button Style="{StaticResource ColorBtn}" Background="#32CD32" Tag="#32CD32" Click="ColorBtn_Click"/>
-                        <Button Style="{StaticResource ColorBtn}" Background="#0000FF" Tag="#0000FF" Click="ColorBtn_Click"/>
-                        <Button Style="{StaticResource ColorBtn}" Background="#3498DB" Tag="#3498DB" Click="ColorBtn_Click"/>
-                        <Button Style="{StaticResource ColorBtn}" Background="#9B59B6" Tag="#9B59B6" Click="ColorBtn_Click"/>
-                        <Button Style="{StaticResource ColorBtn}" Background="#FF69B4" Tag="#FF69B4" Click="ColorBtn_Click"/>
-                        <Button Style="{StaticResource ColorBtn}" Background="#8B4513" Tag="#8B4513" Click="ColorBtn_Click"/>
-                        <Button Style="{StaticResource ColorBtn}" Background="#808080" Tag="#808080" Click="ColorBtn_Click"/>
-
-                        <Separator Width="1" Background="#45475A" Margin="6,5"/>
-                        <Button Width="26" Height="26" Margin="1" Cursor="Hand" ToolTip="Chọn màu tùy chỉnh..."
-                                Click="BtnCustomColor_Click" BorderThickness="1" BorderBrush="#45475A">
-                            <Button.Background>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                    <GradientStop Color="Red" Offset="0"/>
-                                    <GradientStop Color="Yellow" Offset="0.25"/>
-                                    <GradientStop Color="Lime" Offset="0.5"/>
-                                    <GradientStop Color="Cyan" Offset="0.75"/>
-                                    <GradientStop Color="Blue" Offset="1"/>
-                                </LinearGradientBrush>
-                            </Button.Background>
-                        </Button>
-                        <Border x:Name="CurrentColorPreview" Width="26" Height="26" Background="Black" BorderBrush="#CDD6F4" BorderThickness="2" CornerRadius="3" Margin="2,0,0,0"/>
-                        <TextBlock x:Name="TxtCurrentColor" Text="#000000" Foreground="#CDD6F4" VerticalAlignment="Center" Margin="5,0" FontSize="11" FontFamily="Consolas"/>
-
-                        <Separator Width="1" Background="#45475A" Margin="6,5"/>
-                        <TextBlock x:Name="TxtToolName" Text="Bút vẽ" Foreground="#89B4FA" VerticalAlignment="Center" FontWeight="Bold" FontSize="12"/>
-                    </StackPanel>
-
-                    <!-- Zoom -->
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,8,0">
-                        <Button Content="−" Width="24" Height="24" FontSize="14" Style="{StaticResource SmallToolBtn}" Click="BtnZoomOut_Click"/>
-                        <TextBlock x:Name="TxtZoom" Text="100%" Foreground="#CDD6F4" VerticalAlignment="Center" FontSize="11" Margin="4,0" Width="38" TextAlignment="Center"/>
-                        <Button Content="+" Width="24" Height="24" FontSize="14" Style="{StaticResource SmallToolBtn}" Click="BtnZoomIn_Click"/>
-                        <Button Content="⊙" Width="24" Height="24" FontSize="11" Style="{StaticResource SmallToolBtn}" Click="BtnZoomReset_Click" ToolTip="Reset (Ctrl+0)" Margin="2,0,0,0"/>
-                    </StackPanel>
-                </Grid>
+        <!-- === TOP-RIGHT: Zoom + Panel toggle === -->
+        <StackPanel VerticalAlignment="Top" HorizontalAlignment="Right" Margin="0,16,16,0" Orientation="Horizontal">
+            <Border Background="#E62A2A3C" CornerRadius="24" Padding="6,4" Margin="0,0,8,0">
+                <Border.Effect><DropShadowEffect Color="Black" Opacity="0.3" BlurRadius="14" ShadowDepth="2"/></Border.Effect>
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="−" Style="{StaticResource SmallToolBtn}" Width="30" Height="30" Click="BtnZoomOut_Click"/>
+                    <TextBlock x:Name="TxtZoom" Text="100%" Foreground="#CDD6F4" VerticalAlignment="Center" FontSize="12" Width="44" TextAlignment="Center"/>
+                    <Button Content="+" Style="{StaticResource SmallToolBtn}" Width="30" Height="30" Click="BtnZoomIn_Click"/>
+                    <Button Content="⊙" Style="{StaticResource SmallToolBtn}" Width="30" Height="30" Click="BtnZoomReset_Click" ToolTip="Reset (Ctrl+0)"/>
+                </StackPanel>
             </Border>
-
-            <!-- Drawing Canvas -->
-            <Border Grid.Row="1" Background="#2B2B2B" Margin="0" ClipToBounds="True" x:Name="CanvasWrapper"
-                    MouseWheel="Canvas_MouseWheel"
-                    MouseRightButtonDown="Canvas_RightButtonDown"
-                    MouseRightButtonUp="Canvas_RightButtonUp"
-                    MouseMove="CanvasWrapper_MouseMove">
-                <Canvas x:Name="DrawCanvas"
-                        Width="1600" Height="1200"
-                        MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
-                        MouseMove="Canvas_MouseMove"
-                        MouseLeftButtonUp="Canvas_MouseLeftButtonUp"
-                        ClipToBounds="True">
-                    <Canvas.Background>
-                        <DrawingBrush TileMode="Tile" Viewport="0,0,20,20" ViewportUnits="Absolute">
-                            <DrawingBrush.Drawing>
-                                <DrawingGroup>
-                                    <GeometryDrawing Brush="#E8E8E8">
-                                        <GeometryDrawing.Geometry>
-                                            <RectangleGeometry Rect="0,0,20,20"/>
-                                        </GeometryDrawing.Geometry>
-                                    </GeometryDrawing>
-                                    <GeometryDrawing Brush="#D8D8D8">
-                                        <GeometryDrawing.Geometry>
-                                            <GeometryGroup>
-                                                <RectangleGeometry Rect="0,0,10,10"/>
-                                                <RectangleGeometry Rect="10,10,10,10"/>
-                                            </GeometryGroup>
-                                        </GeometryDrawing.Geometry>
-                                    </GeometryDrawing>
-                                </DrawingGroup>
-                            </DrawingBrush.Drawing>
-                        </DrawingBrush>
-                    </Canvas.Background>
-                    <Canvas.RenderTransform>
-                        <TransformGroup>
-                            <ScaleTransform x:Name="CanvasScale" ScaleX="1" ScaleY="1"/>
-                            <TranslateTransform x:Name="CanvasPan" X="0" Y="0"/>
-                        </TransformGroup>
-                    </Canvas.RenderTransform>
-                </Canvas>
+            <Border Background="#E62A2A3C" CornerRadius="24" Padding="4">
+                <Border.Effect><DropShadowEffect Color="Black" Opacity="0.3" BlurRadius="14" ShadowDepth="2"/></Border.Effect>
+                <Button x:Name="BtnTogglePanel" Content="☰" Style="{StaticResource SmallToolBtn}" Width="32" Height="32" FontSize="16"
+                        Click="BtnTogglePanel_Click" ToolTip="Phòng &amp; Chat"/>
             </Border>
+        </StackPanel>
 
-            <!-- AI Command Bar -->
-            <Border Grid.Row="2" Background="#181825" BorderBrush="#313244" BorderThickness="0,1,0,0">
-                <Grid Margin="8,4">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="AI:" Foreground="#F9E2AF" VerticalAlignment="Center" FontSize="13" FontWeight="Bold" Margin="0,0,6,0"/>
-                    <TextBox x:Name="TxtAiCommand" Grid.Column="1"
-                             Background="#313244" Foreground="#CDD6F4" BorderBrush="#45475A"
-                             FontSize="12" Padding="6,4" VerticalContentAlignment="Center"
-                             ToolTip="Ví dụ: vẽ hình tròn màu đỏ ở giữa"
-                             KeyDown="TxtAiCommand_KeyDown"/>
-                    <Button Grid.Column="2" Content="Gửi" Width="50" Margin="4,0,0,0"
-                            Background="#89B4FA" Foreground="#1E1E2E" FontWeight="Bold" FontSize="12" BorderThickness="0"
-                            Click="BtnAiSend_Click" Cursor="Hand"/>
-                </Grid>
-            </Border>
-        </Grid>
+        <!-- === BOTTOM-CENTER: Floating toolbar === -->
+        <Border VerticalAlignment="Bottom" HorizontalAlignment="Center" Margin="0,0,0,20"
+                Background="#F22A2A3C" CornerRadius="18" Padding="10,8">
+            <Border.Effect><DropShadowEffect Color="Black" Opacity="0.45" BlurRadius="24" ShadowDepth="4"/></Border.Effect>
+            <StackPanel>
+                <!-- Row 1: Tools -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <Button x:Name="BtnSelect" Style="{StaticResource IconToolBtn}" Click="BtnSelect_Click" ToolTip="Chọn (V)" Content="⊡"/>
+                    <Border Width="1" Background="#45475A" Margin="5,6"/>
+                    <Button x:Name="BtnPen" Style="{StaticResource IconToolBtn}" Click="BtnPen_Click" ToolTip="Bút vẽ (P)" Content="✏"/>
+                    <Button x:Name="BtnCalligraphy" Style="{StaticResource IconToolBtn}" Click="BtnCalligraphy_Click" ToolTip="Thư pháp" Content="🖋"/>
+                    <Button x:Name="BtnHighlighter" Style="{StaticResource IconToolBtn}" Click="BtnHighlighter_Click" ToolTip="Highlighter (H)" Content="🖍"/>
+                    <Button x:Name="BtnSpray" Style="{StaticResource IconToolBtn}" Click="BtnSpray_Click" ToolTip="Phun sơn" Content="💨"/>
+                    <Button x:Name="BtnEraser" Style="{StaticResource IconToolBtn}" Click="BtnEraser_Click" ToolTip="Tẩy (X)" Content="⌫"/>
+                    <Border Width="1" Background="#45475A" Margin="5,6"/>
+                    <Button x:Name="BtnLine" Style="{StaticResource IconToolBtn}" Click="BtnLine_Click" ToolTip="Đường thẳng (L)" Content="╱"/>
+                    <Button x:Name="BtnArrow" Style="{StaticResource IconToolBtn}" Click="BtnArrow_Click" ToolTip="Mũi tên (A)" Content="→"/>
+                    <Button x:Name="BtnRect" Style="{StaticResource IconToolBtn}" Click="BtnRect_Click" ToolTip="Chữ nhật (R)" Content="▭"/>
+                    <Button x:Name="BtnCircle" Style="{StaticResource IconToolBtn}" Click="BtnCircle_Click" ToolTip="Hình tròn (C)" Content="○"/>
+                    <Button x:Name="BtnEllipse" Style="{StaticResource IconToolBtn}" Click="BtnEllipse_Click" ToolTip="Elip (E)" Content="⬭"/>
+                    <Button x:Name="BtnTriangle" Style="{StaticResource IconToolBtn}" Click="BtnTriangle_Click" ToolTip="Tam giác (T)" Content="△"/>
+                    <Button x:Name="BtnStar" Style="{StaticResource IconToolBtn}" Click="BtnStar_Click" ToolTip="Ngôi sao" Content="☆"/>
+                    <Button x:Name="BtnText" Style="{StaticResource IconToolBtn}" Click="BtnText_Click" ToolTip="Chèn text" Content="A" FontWeight="Bold"/>
+                    <Border Width="1" Background="#45475A" Margin="5,6"/>
+                    <Button Style="{StaticResource IconToolBtn}" Click="BtnImportImage_Click" ToolTip="Import ảnh" Content="🖼"/>
+                    <Button Style="{StaticResource IconToolBtn}" Click="BtnTemplate_Click" ToolTip="Template" Content="📋"/>
+                    <Border Width="1" Background="#45475A" Margin="5,6"/>
+                    <Button Style="{StaticResource IconToolBtn}" Click="BtnUndo_Click" ToolTip="Undo (Ctrl+Z)" Content="↶"/>
+                    <Button Style="{StaticResource IconToolBtn}" Click="BtnRedo_Click" ToolTip="Redo (Ctrl+Y)" Content="↷"/>
+                    <Button Style="{StaticResource IconToolBtn}" Click="BtnClear_Click" ToolTip="Xóa tất cả" Content="🗑"/>
+                    <Button Style="{StaticResource IconToolBtn}" Click="BtnSave_Click" ToolTip="Lưu (Ctrl+S)" Content="💾"/>
+                    <Button Style="{StaticResource IconToolBtn}" Click="BtnLoad_Click" ToolTip="Mở (Ctrl+O)" Content="📂"/>
+                    <Button Style="{StaticResource IconToolBtn}" Click="BtnExport_Click" ToolTip="Xuất PNG" Content="📤"/>
+                </StackPanel>
+                <!-- Row 2: Colors + Size + Style -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,8,0,0">
+                    <Button Style="{StaticResource ColorBtn}" Background="#000000" Tag="#000000" Click="ColorBtn_Click"/>
+                    <Button Style="{StaticResource ColorBtn}" Background="#FFFFFF" Tag="#FFFFFF" Click="ColorBtn_Click"/>
+                    <Button Style="{StaticResource ColorBtn}" Background="#F38BA8" Tag="#F38BA8" Click="ColorBtn_Click"/>
+                    <Button Style="{StaticResource ColorBtn}" Background="#FAB387" Tag="#FAB387" Click="ColorBtn_Click"/>
+                    <Button Style="{StaticResource ColorBtn}" Background="#F9E2AF" Tag="#F9E2AF" Click="ColorBtn_Click"/>
+                    <Button Style="{StaticResource ColorBtn}" Background="#A6E3A1" Tag="#A6E3A1" Click="ColorBtn_Click"/>
+                    <Button Style="{StaticResource ColorBtn}" Background="#94E2D5" Tag="#94E2D5" Click="ColorBtn_Click"/>
+                    <Button Style="{StaticResource ColorBtn}" Background="#89B4FA" Tag="#89B4FA" Click="ColorBtn_Click"/>
+                    <Button Style="{StaticResource ColorBtn}" Background="#B4BEFE" Tag="#B4BEFE" Click="ColorBtn_Click"/>
+                    <Button Style="{StaticResource ColorBtn}" Background="#CBA6F7" Tag="#CBA6F7" Click="ColorBtn_Click"/>
+                    <Button Style="{StaticResource ColorBtn}" Background="#F5C2E7" Tag="#F5C2E7" Click="ColorBtn_Click"/>
+                    <Button Width="28" Height="28" Margin="3,0" Cursor="Hand" ToolTip="Chọn màu tùy chỉnh..."
+                            Click="BtnCustomColor_Click" BorderThickness="0">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Grid>
+                                    <Ellipse x:Name="Ring" Stroke="Transparent" StrokeThickness="2"/>
+                                    <Ellipse Margin="3">
+                                        <Ellipse.Fill>
+                                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                                <GradientStop Color="Red" Offset="0"/>
+                                                <GradientStop Color="Yellow" Offset="0.25"/>
+                                                <GradientStop Color="Lime" Offset="0.5"/>
+                                                <GradientStop Color="Cyan" Offset="0.75"/>
+                                                <GradientStop Color="Blue" Offset="1"/>
+                                            </LinearGradientBrush>
+                                        </Ellipse.Fill>
+                                    </Ellipse>
+                                </Grid>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="Ring" Property="Stroke" Value="{StaticResource AccentBrush}"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                    <Border x:Name="CurrentColorPreview" Width="28" Height="28" Background="Black" CornerRadius="14" Margin="8,0,4,0" BorderBrush="#CDD6F4" BorderThickness="2"/>
+                    <TextBlock x:Name="TxtCurrentColor" Text="#000000" Foreground="#A6ADC8" VerticalAlignment="Center" Margin="4,0,10,0" FontSize="11" FontFamily="Consolas"/>
+                    <Border Width="1" Background="#45475A" Margin="4,2"/>
+                    <TextBlock Text="Size" Foreground="#A6ADC8" VerticalAlignment="Center" FontSize="11" Margin="8,0,6,0"/>
+                    <Slider x:Name="SliderSize" Width="90" Minimum="1" Maximum="30" Value="2" VerticalAlignment="Center" ValueChanged="SliderSize_ValueChanged"/>
+                    <TextBlock x:Name="TxtSize" Text="2" Foreground="#CDD6F4" VerticalAlignment="Center" Width="22" TextAlignment="Center" FontSize="11"/>
+                    <TextBlock Text="Opacity" Foreground="#A6ADC8" VerticalAlignment="Center" FontSize="11" Margin="8,0,6,0"/>
+                    <Slider x:Name="SliderOpacity" Width="80" Minimum="0.1" Maximum="1.0" Value="1.0" VerticalAlignment="Center" ValueChanged="SliderOpacity_ValueChanged"/>
+                    <TextBlock x:Name="TxtOpacity" Text="100%" Foreground="#CDD6F4" VerticalAlignment="Center" Width="36" TextAlignment="Center" FontSize="11"/>
+                    <Border Width="1" Background="#45475A" Margin="4,2"/>
+                    <ComboBox x:Name="CmbDash" Width="96" Height="28" FontSize="11" SelectedIndex="0" SelectionChanged="CmbDash_SelectionChanged"
+                              Background="#2A2A3C" Foreground="#CDD6F4" BorderBrush="#45475A" Margin="8,0,0,0" VerticalAlignment="Center">
+                        <ComboBoxItem Content="━━ Liền"/>
+                        <ComboBoxItem Content="╌╌ Đứt"/>
+                        <ComboBoxItem Content="···· Chấm"/>
+                    </ComboBox>
+                    <CheckBox x:Name="ChkFill" Content="Fill" Foreground="#CDD6F4" FontSize="11" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
 
-        <!-- === SIDEBAR (Right) === -->
-        <Border Grid.Column="2" Background="#181825" BorderBrush="#313244" BorderThickness="1,0,0,0">
+        <!-- === RIGHT SLIDE-OUT PANEL (Connection / Users / History / Chat) === -->
+        <Border x:Name="SidePanel" HorizontalAlignment="Right" Width="300" Margin="0,80,16,100"
+                Background="#F22A2A3C" CornerRadius="14" Padding="0" Visibility="Collapsed">
+            <Border.Effect><DropShadowEffect Color="Black" Opacity="0.45" BlurRadius="24" ShadowDepth="4"/></Border.Effect>
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="100"/>
-                    <RowDefinition Height="Auto" MaxHeight="160"/>
+                    <RowDefinition Height="160"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- Connection -->
-                <StackPanel Grid.Row="0" Margin="10,8,10,4">
-                    <TextBlock Text="KẾT NỐI" Foreground="#6C7086" FontSize="10" FontWeight="Bold" Margin="0,0,0,4"/>
+                <StackPanel Grid.Row="0" Margin="14,12,14,4">
+                    <TextBlock Text="KẾT NỐI" Style="{StaticResource SectionLabel}"/>
                     <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="70"/>
-                        </Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions>
-                            <RowDefinition/>
-                            <RowDefinition/>
-                            <RowDefinition/>
-                        </Grid.RowDefinitions>
-                        <TextBox x:Name="TxtServerIp" Grid.Row="0" Grid.ColumnSpan="2"
-                                 Text="127.0.0.1" Background="#313244" Foreground="#CDD6F4"
-                                 BorderBrush="#45475A" FontSize="12" Padding="5,3" Margin="0,0,0,2"/>
-                        <TextBox x:Name="TxtPort" Grid.Row="1" Grid.Column="0"
-                                 Text="5000" Background="#313244" Foreground="#CDD6F4"
-                                 BorderBrush="#45475A" FontSize="12" Padding="5,3" Margin="0,0,2,2"/>
-                        <TextBox x:Name="TxtUserName" Grid.Row="1" Grid.Column="1"
-                                 Text="" Background="#313244" Foreground="#CDD6F4"
-                                 BorderBrush="#45475A" FontSize="12" Padding="5,3" Margin="0,0,0,2"
-                                 ToolTip="Tên của bạn"/>
-                        <Button x:Name="BtnConnect" Grid.Row="2" Grid.ColumnSpan="2"
-                                Content="Kết nối" Background="#A6E3A1" Foreground="#1E1E2E"
-                                FontWeight="Bold" FontSize="12" BorderThickness="0" Padding="4" Cursor="Hand"
-                                Click="BtnConnect_Click"/>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="80"/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                        <TextBox x:Name="TxtServerIp" Grid.Row="0" Grid.ColumnSpan="2" Text="127.0.0.1" Style="{StaticResource InputBox}" Margin="0,0,0,6"/>
+                        <TextBox x:Name="TxtPort" Grid.Row="1" Grid.Column="0" Text="5000" Style="{StaticResource InputBox}" Margin="0,0,4,6"/>
+                        <TextBox x:Name="TxtUserName" Grid.Row="1" Grid.Column="1" Text="" Style="{StaticResource InputBox}" Margin="0,0,0,6" ToolTip="Tên"/>
+                        <Button x:Name="BtnConnect" Grid.Row="2" Grid.ColumnSpan="2" Content="Kết nối" Style="{StaticResource AccentBtn}" Background="#A6E3A1" Height="32" Click="BtnConnect_Click"/>
                     </Grid>
-                    <TextBlock x:Name="TxtStatus" Text="{Binding StatusText}" Foreground="#F38BA8" FontSize="11" Margin="0,3,0,0"/>
                 </StackPanel>
 
-                <!-- Room -->
-                <StackPanel Grid.Row="1" Margin="10,2,10,4">
-                    <TextBlock Text="PHÒNG VẼ" Foreground="#6C7086" FontSize="10" FontWeight="Bold" Margin="0,0,0,4"/>
+                <StackPanel Grid.Row="1" Margin="14,4,14,4">
+                    <TextBlock Text="PHÒNG VẼ" Style="{StaticResource SectionLabel}"/>
                     <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="50"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBox x:Name="TxtRoomId" Grid.Column="0" Text="default"
-                                 Background="#313244" Foreground="#CDD6F4" BorderBrush="#45475A"
-                                 FontSize="12" Padding="5,3" Margin="0,0,2,0"/>
-                        <Button x:Name="BtnJoinRoom" Grid.Column="1" Content="Vào"
-                                Background="#89B4FA" Foreground="#1E1E2E" FontWeight="Bold" FontSize="12"
-                                BorderThickness="0" Cursor="Hand" Click="BtnJoinRoom_Click"/>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="56"/></Grid.ColumnDefinitions>
+                        <TextBox x:Name="TxtRoomId" Grid.Column="0" Text="default" Style="{StaticResource InputBox}" Margin="0,0,6,0"/>
+                        <Button x:Name="BtnJoinRoom" Grid.Column="1" Content="Vào" Style="{StaticResource AccentBtn}" Height="30" Click="BtnJoinRoom_Click"/>
                     </Grid>
-                    <TextBlock x:Name="TxtRoomName" Text="" Foreground="#A6E3A1" FontSize="11" Margin="0,3,0,0"/>
                 </StackPanel>
 
-                <!-- Users -->
-                <Border Grid.Row="2" Margin="10,2,10,4" Background="#11111B" CornerRadius="4">
+                <Border Grid.Row="2" Style="{StaticResource Card}">
                     <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="ONLINE" Foreground="#6C7086" FontSize="10" FontWeight="Bold" Margin="8,5,0,2"/>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="ONLINE" Style="{StaticResource SectionLabel}" Margin="0,0,0,4"/>
                         <ListBox x:Name="LstUsers" Grid.Row="1" Background="Transparent" BorderThickness="0" Foreground="#CDD6F4" FontSize="12"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" Margin="4,0">
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <StackPanel Orientation="Horizontal" Margin="0,1">
-                                        <Border Width="10" Height="10" CornerRadius="5" Margin="0,0,6,0"
-                                                Background="{Binding Color}"/>
-                                        <TextBlock Text="{Binding UserName}" Foreground="#CDD6F4" FontSize="11"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,2">
+                                        <Border Width="10" Height="10" CornerRadius="5" Margin="0,0,6,0" Background="{Binding Color}"/>
+                                        <TextBlock Text="{Binding UserName}" Foreground="#CDD6F4" FontSize="12"/>
                                     </StackPanel>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
@@ -387,24 +497,22 @@
                     </Grid>
                 </Border>
 
-                <!-- Drawing History -->
-                <Border Grid.Row="3" Margin="10,2,10,4" Background="#11111B" CornerRadius="4">
+                <Border Grid.Row="3" Style="{StaticResource Card}">
                     <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="LỊCH SỬ VẼ" Foreground="#6C7086" FontSize="10" FontWeight="Bold" Margin="8,5,0,2"/>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="LỊCH SỬ VẼ" Style="{StaticResource SectionLabel}" Margin="0,0,0,4"/>
                         <ListBox x:Name="LstHistory" Grid.Row="1" Background="Transparent" BorderThickness="0"
-                                 Foreground="#A6ADC8" FontSize="10" ScrollViewer.HorizontalScrollBarVisibility="Disabled" Margin="2,0"
+                                 Foreground="#A6ADC8" FontSize="11"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                 ScrollViewer.CanContentScroll="True"
                                  SelectionChanged="LstHistory_SelectionChanged">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <StackPanel Orientation="Horizontal" Margin="0,1">
-                                        <Border Width="10" Height="10" CornerRadius="2" Margin="0,0,5,0"
-                                                Background="{Binding ColorBrush}"/>
-                                        <TextBlock Text="{Binding Description}" Foreground="#A6ADC8" FontSize="10"
-                                                   TextTrimming="CharacterEllipsis" MaxWidth="195"/>
+                                    <StackPanel Orientation="Horizontal" Margin="0,2">
+                                        <Border Width="10" Height="10" CornerRadius="2" Margin="0,0,5,0" Background="{Binding ColorBrush}"/>
+                                        <TextBlock Text="{Binding UserLabel}" Foreground="#89B4FA" FontSize="10" FontWeight="Bold" Margin="0,0,4,0"/>
+                                        <TextBlock Text="{Binding Description}" Foreground="#A6ADC8" FontSize="10" TextTrimming="CharacterEllipsis" MaxWidth="180"/>
                                     </StackPanel>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
@@ -412,34 +520,36 @@
                     </Grid>
                 </Border>
 
-                <!-- Chat -->
-                <Border Grid.Row="4" Margin="10,2,10,4" Background="#11111B" CornerRadius="4">
+                <Border Grid.Row="4" Style="{StaticResource Card}">
                     <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Text="CHAT" Foreground="#6C7086" FontSize="10" FontWeight="Bold" Margin="8,5,0,2"/>
-                        <ScrollViewer Grid.Row="1" x:Name="ChatScroll" VerticalScrollBarVisibility="Auto" Margin="4,0">
-                            <TextBlock x:Name="TxtChat" Foreground="#CDD6F4" FontSize="11" TextWrapping="Wrap" Margin="4,0,4,4"/>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="CHAT" Style="{StaticResource SectionLabel}" Margin="0,0,0,4"/>
+                        <ScrollViewer Grid.Row="1" x:Name="ChatScroll" VerticalScrollBarVisibility="Auto">
+                            <TextBlock x:Name="TxtChat" Foreground="#CDD6F4" FontSize="11" TextWrapping="Wrap"/>
                         </ScrollViewer>
                     </Grid>
                 </Border>
 
-                <!-- Chat Input -->
-                <Grid Grid.Row="5" Margin="10,2,10,8">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="40"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBox x:Name="TxtChatInput" Grid.Column="0"
-                             Background="#313244" Foreground="#CDD6F4" BorderBrush="#45475A"
-                             FontSize="12" Padding="5,3" KeyDown="TxtChatInput_KeyDown"/>
-                    <Button Grid.Column="1" Content="↵" Background="#89B4FA" Foreground="#1E1E2E"
-                            FontWeight="Bold" FontSize="16" BorderThickness="0" Cursor="Hand"
-                            Click="BtnChatSend_Click" Margin="2,0,0,0"/>
+                <Grid Grid.Row="5" Margin="14,4,14,6">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="40"/></Grid.ColumnDefinitions>
+                    <TextBox x:Name="TxtChatInput" Grid.Column="0" Style="{StaticResource InputBox}" KeyDown="TxtChatInput_KeyDown"/>
+                    <Button Grid.Column="1" Content="↵" Style="{StaticResource AccentBtn}" FontSize="14" Margin="6,0,0,0" Click="BtnChatSend_Click"/>
+                </Grid>
+
+                <Grid Grid.Row="6" Margin="14,0,14,12">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="56"/></Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Background="#3A2E1A" CornerRadius="4" Padding="6,2" Margin="0,0,6,0" VerticalAlignment="Center">
+                        <TextBlock Text="✨ AI" Foreground="#F9E2AF" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold"/>
+                    </Border>
+                    <TextBox x:Name="TxtAiCommand" Grid.Column="1" Style="{StaticResource InputBox}" KeyDown="TxtAiCommand_KeyDown" ToolTip="vẽ hình tròn màu đỏ"/>
+                    <Button Grid.Column="2" Content="Gửi" Style="{StaticResource AccentBtn}" Margin="6,0,0,0" Click="BtnAiSend_Click"/>
                 </Grid>
             </Grid>
         </Border>
+
+        <!-- Hidden placeholders for names referenced by code-behind but not visible on the main layout -->
+        <Grid Visibility="Collapsed">
+            <TextBlock x:Name="TxtToolName"/>
+        </Grid>
     </Grid>
 </Window>

@@ -130,6 +130,9 @@ public class MainViewModel : ViewModelBase
                 {
                     _events.Publish(new AppendChatEvent($"[Hệ thống] Bạn đã vào phòng '{joined.Room.RoomName}'", true));
                     _events.Publish(new UserListUpdatedEvent(joined.Users));
+                    // Sync self-color from the server-assigned UserInfo
+                    var me = joined.Users.FirstOrDefault(u => u.UserId == Canvas.UserId);
+                    if (me != null) Canvas.UserColor = me.Color;
                     Canvas.HandleSnapshot(joined.History);
                 }
                 break;
