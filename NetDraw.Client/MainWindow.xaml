@@ -322,7 +322,7 @@
                                 FontWeight="Bold" FontSize="12" BorderThickness="0" Padding="4" Cursor="Hand"
                                 Click="BtnConnect_Click"/>
                     </Grid>
-                    <TextBlock x:Name="TxtStatus" Text="Chưa kết nối" Foreground="#F38BA8" FontSize="11" Margin="0,3,0,0"/>
+                    <TextBlock x:Name="TxtStatus" Text="{Binding StatusText}" Foreground="#F38BA8" FontSize="11" Margin="0,3,0,0"/>
                 </StackPanel>
 
                 <!-- Room -->
