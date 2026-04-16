@@ -97,7 +97,7 @@ public class WpfCanvasRenderer : ICanvasRenderer
         }
         geometry.Freeze();
 
-        return new Path
+        return new System.Windows.Shapes.Path
         {
             Data = geometry,
             Stroke = BrushFromHex(action.Color),
@@ -169,7 +169,7 @@ public class WpfCanvasRenderer : ICanvasRenderer
         }
         geometry.Freeze();
 
-        return new Path
+        return new System.Windows.Shapes.Path
         {
             Data = geometry,
             Stroke = brush,

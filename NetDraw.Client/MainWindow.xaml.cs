@@ -184,7 +184,36 @@ public partial class MainWindow : Window
         if (action == null) return;
 
         // Update preview
-        if (action is NetDraw.Shared.Models.Actions.PenAction or NetDraw.Shared.Models.Actions.EraseAction)
+        if (action is NetDraw.Shared.Models.Actions.PenAction penAction)
+        {
+            // Live preview: use a fast Polyline that we just append to.
+            // Final stroke (on MouseUp) will render with smoothed Bezier curves.
+            if (_previewShape is System.Windows.Shapes.Polyline polyline)
+            {
+                polyline.Points.Add(pos);
+            }
+            else
+            {
+                if (_previewShape != null) DrawCanvas.Children.Remove(_previewShape);
+                var preview = new System.Windows.Shapes.Polyline
+                {
+                    Stroke = new System.Windows.Media.SolidColorBrush(
+                        (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(penAction.Color)),
+                    StrokeThickness = penAction.PenStyle == NetDraw.Shared.Models.Actions.PenStyle.Highlighter
+                        ? penAction.StrokeWidth * 4 : penAction.StrokeWidth,
+                    StrokeLineJoin = System.Windows.Media.PenLineJoin.Round,
+                    StrokeStartLineCap = System.Windows.Media.PenLineCap.Round,
+                    StrokeEndLineCap = System.Windows.Media.PenLineCap.Round,
+                    Opacity = penAction.PenStyle == NetDraw.Shared.Models.Actions.PenStyle.Highlighter
+                        ? 0.4 * penAction.Opacity : penAction.Opacity,
+                    IsHitTestVisible = false
+                };
+                foreach (var pt in penAction.Points) preview.Points.Add(new Point(pt.X, pt.Y));
+                _previewShape = preview;
+                DrawCanvas.Children.Add(_previewShape);
+            }
+        }
+        else if (action is NetDraw.Shared.Models.Actions.EraseAction)
         {
             if (_previewShape is System.Windows.Shapes.Polyline polyline)
                 polyline.Points.Add(pos);
@@ -335,10 +364,94 @@ public partial class MainWindow : Window
 
     private void CanvasWrapper_MouseMove(object sender, MouseEventArgs e)
     {
-        if (!_isPanning) return;
         var current = e.GetPosition(CanvasWrapper);
+
+        // Update local brush cursor overlay (screen-space)
+        if (BrushCursor.Visibility == Visibility.Visible)
+        {
+            // Center cursor on mouse position
+            Canvas.SetLeft(BrushCursor, current.X - BrushCursor.ActualWidth / 2);
+            Canvas.SetTop(BrushCursor, current.Y - BrushCursor.ActualHeight / 2);
+        }
+
+        if (!_isPanning) return;
         CanvasPan.X = _panStartX + (current.X - _panStart.X);
         CanvasPan.Y = _panStartY + (current.Y - _panStart.Y);
+    }
+
+    private void CanvasWrapper_MouseEnter(object sender, MouseEventArgs e)
+    {
+        UpdateBrushCursor();
+        if (_vm.Toolbar.ActiveTool != DrawTool.Select && _vm.Toolbar.ActiveTool != DrawTool.Text)
+            BrushCursor.Visibility = Visibility.Visible;
+    }
+
+    private void CanvasWrapper_MouseLeave(object sender, MouseEventArgs e)
+    {
+        BrushCursor.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Refresh the local brush cursor visual (size, color, shape) based on current tool/color/size/zoom.
+    /// </summary>
+    private void UpdateBrushCursor()
+    {
+        if (BrushCursor == null || _vm?.Toolbar == null) return;
+
+        var tool = _vm.Toolbar.ActiveTool;
+
+        // Select + Text tools use system cursor (restore it)
+        if (tool == DrawTool.Select || tool == DrawTool.Text)
+        {
+            CanvasWrapper.Cursor = tool == DrawTool.Text
+                ? System.Windows.Input.Cursors.IBeam
+                : System.Windows.Input.Cursors.Arrow;
+            BrushCursor.Visibility = Visibility.Collapsed;
+            return;
+        }
+        CanvasWrapper.Cursor = System.Windows.Input.Cursors.None;
+
+        // Compute visible cursor diameter in screen pixels
+        double zoom = _vm.Canvas.ZoomLevel;
+        double stroke = _vm.Toolbar.StrokeWidth;
+        if (tool == DrawTool.Highlighter) stroke *= 4;
+        else if (tool == DrawTool.Eraser) stroke = Math.Max(stroke, _vm.Toolbar.StrokeWidth * 6);
+        double d = Math.Clamp(stroke * zoom, 10.0, 200.0);
+
+        CursorHalo.Width = d + 6; CursorHalo.Height = d + 6;
+        CursorRing.Width = d; CursorRing.Height = d;
+        CursorRingInner.Width = Math.Max(d - 4, 6); CursorRingInner.Height = Math.Max(d - 4, 6);
+
+        // Color ring = user's chosen color (for pen/shape/line); eraser = white ring on dark halo; highlighter = translucent
+        var colorHex = _vm.Toolbar.CurrentColor ?? "#000000";
+        var color = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(colorHex);
+        var ringBrush = new System.Windows.Media.SolidColorBrush(color);
+        ringBrush.Freeze();
+
+        if (tool == DrawTool.Eraser)
+        {
+            CursorRing.Stroke = System.Windows.Media.Brushes.White;
+            CursorRing.Fill = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(40, 0, 0, 0));
+            CursorDot.Fill = System.Windows.Media.Brushes.White;
+        }
+        else if (tool == DrawTool.Highlighter)
+        {
+            CursorRing.Stroke = ringBrush;
+            CursorRing.Fill = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromArgb(60, color.R, color.G, color.B));
+            CursorDot.Fill = ringBrush;
+        }
+        else
+        {
+            CursorRing.Stroke = ringBrush;
+            CursorRing.Fill = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromArgb(30, color.R, color.G, color.B));
+            CursorDot.Fill = ringBrush;
+        }
+
+        // Center the Grid so positioning offset by w/2, h/2 works consistently
+        BrushCursor.Width = CursorHalo.Width;
+        BrushCursor.Height = CursorHalo.Height;
     }
 
     private void SetZoom(double level)
@@ -346,6 +459,7 @@ public partial class MainWindow : Window
         _vm.Canvas.ZoomLevel = level;
         CanvasScale.ScaleX = _vm.Canvas.ZoomLevel; CanvasScale.ScaleY = _vm.Canvas.ZoomLevel;
         TxtZoom.Text = $"{(int)(_vm.Canvas.ZoomLevel * 100)}%";
+        UpdateBrushCursor();
     }
 
     private void BtnZoomIn_Click(object sender, RoutedEventArgs e) => SetZoom(_vm.Canvas.ZoomLevel + 0.1);
@@ -384,6 +498,7 @@ public partial class MainWindow : Window
         _vm.Toolbar.ActiveTool = tool;
         HighlightTool(btn);
         if (tool != DrawTool.Select) ClearSelection();
+        UpdateBrushCursor();
     }
 
     private Button? _activeToolBtn;
@@ -401,6 +516,7 @@ public partial class MainWindow : Window
             _vm.Toolbar.CurrentColor = color;
             CurrentColorPreview.Background = WpfCanvasRenderer.BrushFromHex(color);
             TxtCurrentColor.Text = color;
+            UpdateBrushCursor();
         }
     }
 
@@ -412,6 +528,7 @@ public partial class MainWindow : Window
             _vm.Toolbar.CurrentColor = dialog.SelectedColor;
             CurrentColorPreview.Background = WpfCanvasRenderer.BrushFromHex(dialog.SelectedColor);
             TxtCurrentColor.Text = dialog.SelectedColor;
+            UpdateBrushCursor();
         }
     }
 
@@ -419,6 +536,7 @@ public partial class MainWindow : Window
     {
         if (_vm?.Toolbar != null) _vm.Toolbar.StrokeWidth = e.NewValue;
         if (TxtSize != null) TxtSize.Text = ((int)e.NewValue).ToString();
+        UpdateBrushCursor();
     }
 
     private void SliderOpacity_ValueChanged(object s, RoutedPropertyChangedEventArgs<double> e)

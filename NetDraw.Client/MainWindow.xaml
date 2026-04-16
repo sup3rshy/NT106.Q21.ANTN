@@ -280,10 +280,14 @@
     <Grid>
         <!-- === FULL-SCREEN CANVAS (base layer) === -->
         <Border x:Name="CanvasWrapper" Background="#E6E6E6" ClipToBounds="True"
+                Cursor="None"
                 MouseWheel="Canvas_MouseWheel"
                 MouseRightButtonDown="Canvas_RightButtonDown"
                 MouseRightButtonUp="Canvas_RightButtonUp"
-                MouseMove="CanvasWrapper_MouseMove">
+                MouseMove="CanvasWrapper_MouseMove"
+                MouseEnter="CanvasWrapper_MouseEnter"
+                MouseLeave="CanvasWrapper_MouseLeave">
+            <Grid>
             <Canvas x:Name="DrawCanvas"
                     Width="3000" Height="2000"
                     MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
@@ -317,6 +321,27 @@
                     </TransformGroup>
                 </Canvas.RenderTransform>
             </Canvas>
+
+            <!-- === Custom local cursor overlay (screen-space, not zoomed) === -->
+            <Canvas x:Name="CursorOverlay" IsHitTestVisible="False" Background="Transparent">
+                <Grid x:Name="BrushCursor" Visibility="Collapsed" IsHitTestVisible="False">
+                    <!-- Outer soft halo -->
+                    <Ellipse x:Name="CursorHalo" Width="32" Height="32" Fill="#33000000"/>
+                    <!-- Main colored ring -->
+                    <Ellipse x:Name="CursorRing" Width="28" Height="28"
+                             Stroke="Black" StrokeThickness="2" Fill="#55FFFFFF">
+                        <Ellipse.Effect>
+                            <DropShadowEffect Color="Black" Opacity="0.35" BlurRadius="4" ShadowDepth="0"/>
+                        </Ellipse.Effect>
+                    </Ellipse>
+                    <!-- White inner outline for contrast on any background -->
+                    <Ellipse x:Name="CursorRingInner" Width="24" Height="24"
+                             Stroke="White" StrokeThickness="1.2"/>
+                    <!-- Precise center crosshair dot -->
+                    <Ellipse x:Name="CursorDot" Width="3" Height="3" Fill="Black"/>
+                </Grid>
+            </Canvas>
+            </Grid>
         </Border>
 
         <!-- === TOP-LEFT: Status pill === -->
@@ -444,15 +469,15 @@
         </Border>
 
         <!-- === RIGHT SLIDE-OUT PANEL (Connection / Users / History / Chat) === -->
-        <Border x:Name="SidePanel" HorizontalAlignment="Right" Width="300" Margin="0,80,16,100"
+        <Border x:Name="SidePanel" HorizontalAlignment="Right" Width="310" Margin="0,72,14,180"
                 Background="#F22A2A3C" CornerRadius="14" Padding="0" Visibility="Collapsed">
             <Border.Effect><DropShadowEffect Color="Black" Opacity="0.45" BlurRadius="24" ShadowDepth="4"/></Border.Effect>
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="100"/>
-                    <RowDefinition Height="160"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
@@ -479,11 +504,12 @@
                     </Grid>
                 </StackPanel>
 
-                <Border Grid.Row="2" Style="{StaticResource Card}">
+                <Border Grid.Row="2" Style="{StaticResource Card}" MinHeight="72">
                     <Grid>
                         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                         <TextBlock Grid.Row="0" Text="ONLINE" Style="{StaticResource SectionLabel}" Margin="0,0,0,4"/>
                         <ListBox x:Name="LstUsers" Grid.Row="1" Background="Transparent" BorderThickness="0" Foreground="#CDD6F4" FontSize="12"
+                                 MaxHeight="110"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
