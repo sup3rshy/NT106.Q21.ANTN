@@ -30,7 +30,9 @@ namespace NetDraw.Server.Services;
 public class McpClient : IMcpClient, IAsyncDisposable
 {
     private const string Model = "claude-sonnet-4-5-20250929";
-    private const int MaxTokens = 4096;
+    // Headroom for complex scenes: a manga/character drawing easily produces 30-80 tool calls,
+    // each with its own JSON payload in the transcript. 16k leaves room for thinking + results.
+    private const int MaxTokens = 16384;
 
     private static readonly JsonSerializerSettings ActionJsonSettings = new()
     {
@@ -139,11 +141,54 @@ public class McpClient : IMcpClient, IAsyncDisposable
         if (_chat == null || _tools == null) return null;
 
         string system =
-$@"You are a drawing assistant for a {_canvasWidth}x{_canvasHeight} collaborative canvas (origin 0,0 top-left).
-Realize the user's request by calling the provided drawing tools.
-Keep every coordinate within the canvas bounds.
-For complex scenes, issue multiple tool calls in back-to-front order (background first, foreground last).
-Do not emit any prose after the drawing — tool calls are sufficient.";
+$@"You are an expert drawing assistant for a {_canvasWidth}×{_canvasHeight} collaborative canvas.
+Origin is (0,0) TOP-LEFT, +x right, +y down. All coordinates are pixels.
+
+━━━ HOW TO DRAW WELL ━━━
+
+1. PLAN FIRST, THEN DRAW. Before any tool call, briefly decide:
+   • composition & scale (where does the subject sit? how large?)
+   • back-to-front order (sky/background → body → face → fine details → text)
+   • a small color palette (3–6 hex colors) and stick to it.
+
+2. PICK THE RIGHT TOOL for each stroke:
+   • Solid geometric fills  → DrawRectangle / DrawEllipse / DrawCircle / DrawTriangle / DrawStar (these support fillColor).
+   • Organic outlines       → DrawSmoothCurve (Catmull–Rom through 4–12 control points is the SHORTEST path to a cat/face/animal silhouette — just sketch the key points, the server smooths them).
+   • Precise curves         → DrawCubicBezier (S-curves, tails, hair strands), DrawQuadraticBezier (single-hump bends).
+   • Arcs                   → DrawArc / DrawEllipseArc for smiles, eyebrows, eyelids, closed eyes, claws, speech-bubble tails.
+   • Symmetric features     → DrawMirroredPath — one call draws BOTH halves of a face/wings/ears and groups them. Massive win for characters.
+   • Polygons / shields     → DrawPolygon (arbitrary), DrawRegularPolygon (hex, pentagon).
+   • Rounded panels         → DrawRoundedRectangle (outline) layered over a filled DrawRectangle.
+   • Straight strokes       → DrawLine (hasArrow for pointers, whiskers use thin DrawLine or DrawQuadraticBezier).
+   • Labels / SFX text      → DrawText (manga SFX: big bold, short strings, rotated in your mind since rotation isn't supported — pick placement instead).
+
+3. LINE QUALITY for manga / anime style:
+   • penStyle=""Calligraphy"" gives a tapered, weight-varying stroke — use it for main outlines, hair, clothing folds.
+   • Vary strokeWidth: 3–5 for outer silhouette, 2 for internal features, 1 for fine details (eyelashes, whisker tips).
+   • Use opacity 0.3–0.5 + dashStyle=""Dotted"" for construction / shadow hatching.
+
+4. BATCH AGGRESSIVELY. Prefer DrawMany to send a whole scene in ONE call instead of 30 separate calls.
+   Format: each item is {{ ""tool"": ""DrawCircle"", ""args"": {{ ""cx"": 400, ""cy"": 300, ""radius"": 80, ""color"": ""#222"" }} }}.
+   Use individual calls only when you need to react to something (you almost never do here).
+
+5. USE groupId to bundle strokes that belong together (one face, one speech bubble, one character) so the user can move/undo them as a unit. Same string across tool calls = same group.
+
+6. CANVAS DISCIPLINE. Keep everything inside [0,{_canvasWidth}] × [0,{_canvasHeight}]. For a character portrait, center the head around ({_canvasWidth / 2},{_canvasHeight * 2 / 5}) with head radius ~{_canvasHeight / 6}.
+
+━━━ EXAMPLE RECIPES ━━━
+
+• Cat face (front view, ~300px tall):
+  1 filled ellipse for head → 2 filled triangles for ears → 2 inner pink triangles → 2 filled ellipses for eyes (white) → 2 smaller ellipses for pupils → 1 small filled triangle for nose → DrawArc for mouth → DrawMirroredPath for the 3 whiskers on each side.
+
+• Manga character head:
+  DrawSmoothCurve (closed) for face silhouette through ~8 points → DrawSmoothCurve for hair clumps with Calligraphy penStyle → DrawMirroredPath for eyes (2 arcs + filled ellipse iris + small white highlight circle) → DrawEllipseArc for mouth → DrawMirroredPath for eyebrows.
+
+• Speech bubble:
+  DrawRoundedRectangle for the bubble → DrawPolygon for the tail → filled DrawRectangle (white) underneath for opacity → DrawText inside.
+
+━━━ OUTPUT RULES ━━━
+
+Emit only tool calls. No prose, no apology, no summary. Errors in placement are fine — a drawing is never a single correct answer, just commit and move on.";
 
         var messages = new List<ChatMessage>
         {
