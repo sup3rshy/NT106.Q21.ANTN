@@ -280,13 +280,16 @@
     <Grid>
         <!-- === FULL-SCREEN CANVAS (base layer) === -->
         <Border x:Name="CanvasWrapper" Background="#E6E6E6" ClipToBounds="True"
-                Cursor="None"
+                Cursor="None" Focusable="True"
                 MouseWheel="Canvas_MouseWheel"
                 MouseRightButtonDown="Canvas_RightButtonDown"
                 MouseRightButtonUp="Canvas_RightButtonUp"
+                PreviewMouseDown="CanvasWrapper_PreviewMouseDown"
+                PreviewMouseUp="CanvasWrapper_PreviewMouseUp"
                 MouseMove="CanvasWrapper_MouseMove"
                 MouseEnter="CanvasWrapper_MouseEnter"
-                MouseLeave="CanvasWrapper_MouseLeave">
+                MouseLeave="CanvasWrapper_MouseLeave"
+                LostMouseCapture="CanvasWrapper_LostMouseCapture">
             <Grid>
             <Canvas x:Name="DrawCanvas"
                     Width="3000" Height="2000"
@@ -322,18 +325,15 @@
                 </Canvas.RenderTransform>
             </Canvas>
 
-            <!-- === Custom local cursor overlay (screen-space, not zoomed) === -->
-            <Canvas x:Name="CursorOverlay" IsHitTestVisible="False" Background="Transparent">
-                <Grid x:Name="BrushCursor" Visibility="Collapsed" IsHitTestVisible="False">
-                    <!-- Outer soft halo -->
-                    <Ellipse x:Name="CursorHalo" Width="32" Height="32" Fill="#33000000"/>
-                    <!-- Main colored ring -->
+            <!-- === Custom local cursor overlay (screen-space, not zoomed) ===
+                 No effects — effects force software rendering and cause mouse-move lag -->
+            <Canvas x:Name="CursorOverlay" IsHitTestVisible="False" Background="{x:Null}">
+                <Grid x:Name="BrushCursor" Width="32" Height="32" Visibility="Collapsed" IsHitTestVisible="False">
+                    <!-- Outer soft halo (just a translucent ellipse, no blur effect) -->
+                    <Ellipse x:Name="CursorHalo" Width="32" Height="32" Fill="#22000000"/>
+                    <!-- Main colored ring with dark outline for contrast -->
                     <Ellipse x:Name="CursorRing" Width="28" Height="28"
-                             Stroke="Black" StrokeThickness="2" Fill="#55FFFFFF">
-                        <Ellipse.Effect>
-                            <DropShadowEffect Color="Black" Opacity="0.35" BlurRadius="4" ShadowDepth="0"/>
-                        </Ellipse.Effect>
-                    </Ellipse>
+                             Stroke="Black" StrokeThickness="2" Fill="#33FFFFFF"/>
                     <!-- White inner outline for contrast on any background -->
                     <Ellipse x:Name="CursorRingInner" Width="24" Height="24"
                              Stroke="White" StrokeThickness="1.2"/>

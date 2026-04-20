@@ -6,351 +6,394 @@ using NetDraw.Shared.Models.Actions;
 namespace NetDraw.McpServer;
 
 /// <summary>
-/// Enhanced AI Parser - phân tích lệnh vẽ bằng ngôn ngữ tự nhiên
-/// Hỗ trợ cả tiếng Việt và tiếng Anh
-/// Phức tạp hơn FallbackParser, có thể vẽ nhiều hình, scene phức tạp
+/// Rule-based AI parser — fallback when Claude API key is not set.
+/// Supports Vietnamese + English, multi-object scenes, and repeated shapes.
+/// Canvas safe-zone: 0-1000 × 0-700 (visible area at 1× zoom).
 /// </summary>
 public class EnhancedAiParser : IAiParser
 {
     private static readonly Random Rng = new();
-    private const double CanvasW = 800;
-    private const double CanvasH = 600;
+
+    // Working viewport (not the full 3000×2000 canvas)
+    private const double W = 1000;
+    private const double H = 700;
 
     public Task<List<DrawActionBase>> ParseAsync(string command) =>
         Task.FromResult(Parse(command, "ai"));
 
     public static List<DrawActionBase> Parse(string prompt, string userId)
     {
-        prompt = prompt.ToLower().Trim();
+        var p = prompt.ToLower().Trim();
 
-        // Kiểm tra scene phức tạp trước
-        var sceneActions = ParseScene(prompt, userId);
-        if (sceneActions.Count > 0) return sceneActions;
+        // 1. Complex scenes
+        var scene = ParseScene(p, userId);
+        if (scene.Count > 0) return Stamp(scene, userId);
 
-        // Parse đơn lẻ
-        return ParseSingle(prompt, userId);
+        // 2. "draw N <shape>" — repeated shapes
+        var repeated = ParseRepeated(p, userId);
+        if (repeated.Count > 0) return Stamp(repeated, userId);
+
+        // 3. Single shape / element
+        var single = ParseSingle(p, userId);
+        if (single.Count > 0) return Stamp(single, userId);
+
+        // 4. Nothing matched — draw a random star as fallback so the user sees *something*
+        return Stamp(new List<DrawActionBase> {
+            ShapeCenter(userId, ShapeType.Star, W/2, H/2, 120, 120, "#FFD700", "#FFD700")
+        }, userId);
     }
 
-    private static List<DrawActionBase> ParseScene(string prompt, string userId)
+    // ─── Scene detection ───────────────────────────────────────────────────────
+
+    private static List<DrawActionBase> ParseScene(string p, string userId)
     {
-        var actions = new List<DrawActionBase>();
+        var a = new List<DrawActionBase>();
 
-        // === Cảnh bầu trời / landscape ===
-        if (ContainsAny(prompt, "bầu trời", "sky", "phong cảnh", "landscape", "cảnh"))
+        // Landscape / bầu trời
+        if (Has(p, "bầu trời", "sky", "phong cảnh", "landscape", "cảnh thiên nhiên"))
         {
-            // Nền trời
-            actions.Add(Shape(userId, ShapeType.Rect, 0, 0, CanvasW, CanvasH * 0.6, "#87CEEB", "#87CEEB"));
-            // Nền đất
-            actions.Add(Shape(userId, ShapeType.Rect, 0, CanvasH * 0.6, CanvasW, CanvasH * 0.4, "#228B22", "#228B22"));
-
-            if (ContainsAny(prompt, "mặt trời", "sun", "nắng"))
-            {
-                actions.AddRange(DrawSun(userId, 650, 80));
-            }
-
-            if (ContainsAny(prompt, "mây", "cloud", "clouds"))
-            {
-                actions.AddRange(DrawCloud(userId, 150, 80));
-                actions.AddRange(DrawCloud(userId, 400, 50));
-            }
-
-            if (ContainsAny(prompt, "cây", "tree", "trees"))
-            {
-                actions.AddRange(DrawTree(userId, 200, 300));
-                actions.AddRange(DrawTree(userId, 500, 280));
-            }
-
-            if (ContainsAny(prompt, "nhà", "house"))
-            {
-                actions.AddRange(DrawHouse(userId, 350, 280));
-            }
-
-            return actions;
+            a.Add(Shape(userId, ShapeType.Rect, 0, 0, W, H * 0.6, "#87CEEB", "#87CEEB"));
+            a.Add(Shape(userId, ShapeType.Rect, 0, H * 0.6, W, H * 0.4, "#228B22", "#228B22"));
+            if (Has(p, "mặt trời", "sun", "nắng")) a.AddRange(DrawSun(userId, 800, 100));
+            if (Has(p, "mây", "cloud"))             { a.AddRange(DrawCloud(userId, 200, 90)); a.AddRange(DrawCloud(userId, 500, 60)); }
+            if (Has(p, "cây", "tree"))               { a.AddRange(DrawTree(userId, 250, 380)); a.AddRange(DrawTree(userId, 650, 360)); }
+            if (Has(p, "nhà", "house"))               a.AddRange(DrawHouse(userId, 450, 370));
+            return a;
         }
 
-        // === Mặt cười / smiley ===
-        if (ContainsAny(prompt, "mặt cười", "smiley", "smile", "emoji", "mặt vui"))
+        // Mặt cười / smiley
+        if (Has(p, "mặt cười", "smiley", "smile", "emoji", "mặt vui", "happy face"))
         {
-            string color = ParseColor(prompt, "#FFD700");
-            double cx = CanvasW / 2, cy = CanvasH / 2;
-            // Mặt
-            actions.Add(ShapeCenter(userId, ShapeType.Circle, cx, cy, 120, 120, "#000000", color));
-            // Mắt trái
-            actions.Add(ShapeCenter(userId, ShapeType.Circle, cx - 30, cy - 20, 15, 15, "#000000", "#000000"));
-            // Mắt phải
-            actions.Add(ShapeCenter(userId, ShapeType.Circle, cx + 30, cy - 20, 15, 15, "#000000", "#000000"));
-            // Miệng (dùng ellipse nửa dưới)
-            actions.Add(ShapeCenter(userId, ShapeType.Ellipse, cx, cy + 25, 50, 25, "#000000", null));
-            return actions;
+            string col = Color(p, "#FFD700");
+            double cx = W / 2, cy = H / 2;
+            a.Add(ShapeCenter(userId, ShapeType.Circle, cx, cy, 160, 160, "#333333", col));
+            a.Add(ShapeCenter(userId, ShapeType.Circle, cx - 40, cy - 30, 22, 22, "#333333", "#333333"));
+            a.Add(ShapeCenter(userId, ShapeType.Circle, cx + 40, cy - 30, 22, 22, "#333333", "#333333"));
+            a.Add(ShapeCenter(userId, ShapeType.Ellipse, cx, cy + 30, 70, 35, "#333333", null));
+            return a;
         }
 
-        // === Hoa ===
-        if (ContainsAny(prompt, "hoa", "flower", "bông hoa"))
+        // Hoa / flower
+        if (Has(p, "hoa", "flower", "bông hoa"))
         {
-            string color = ParseColor(prompt, "#FF69B4");
-            var (cx, cy) = ParsePosition(prompt);
-            // Cánh hoa
+            string col = Color(p, "#FF69B4");
+            var (cx, cy) = Position(p);
             for (int i = 0; i < 6; i++)
             {
                 double angle = i * Math.PI / 3;
-                double px = cx + 35 * Math.Cos(angle);
-                double py = cy + 35 * Math.Sin(angle);
-                actions.Add(ShapeCenter(userId, ShapeType.Circle, px, py, 30, 30, color, color));
+                a.Add(ShapeCenter(userId, ShapeType.Circle,
+                    cx + 45 * Math.Cos(angle), cy + 45 * Math.Sin(angle), 38, 38, col, col));
             }
-            // Nhụy
-            actions.Add(ShapeCenter(userId, ShapeType.Circle, cx, cy, 25, 25, "#FFD700", "#FFD700"));
-            // Thân
-            actions.Add(Line(userId, cx, cy + 30, cx, cy + 120, "#228B22", 4));
-            return actions;
+            a.Add(ShapeCenter(userId, ShapeType.Circle, cx, cy, 30, 30, "#FFD700", "#FFD700"));
+            a.Add(Line(userId, cx, cy + 35, cx, cy + 150, "#228B22", 5));
+            return a;
         }
 
-        // === Ngôi nhà ===
-        if (ContainsAny(prompt, "nhà", "house", "ngôi nhà"))
+        // Nhà / house
+        if (Has(p, "ngôi nhà", "ngôi nha", "house", "căn nhà"))
         {
-            var (cx, cy) = ParsePosition(prompt);
+            var (cx, cy) = Position(p);
             return DrawHouse(userId, cx, cy);
         }
 
-        // === Cây ===
-        if (ContainsAny(prompt, "cây", "tree"))
+        // Cây / tree
+        if (Has(p, "cái cây", "cây xanh", "tree"))
         {
-            var (cx, cy) = ParsePosition(prompt);
+            var (cx, cy) = Position(p);
             return DrawTree(userId, cx, cy);
         }
 
-        // === Mặt trời ===
-        if (ContainsAny(prompt, "mặt trời", "sun"))
+        // Mặt trời / sun
+        if (Has(p, "mặt trời", "sun"))
         {
-            var (cx, cy) = ParsePosition(prompt);
+            var (cx, cy) = Position(p);
             return DrawSun(userId, cx, cy);
         }
 
-        // === Trái tim ===
-        if (ContainsAny(prompt, "trái tim", "heart", "tim"))
+        // Trái tim / heart
+        if (Has(p, "trái tim", "heart", "tình yêu", "love"))
         {
-            string color = ParseColor(prompt, "#FF1493");
-            var (cx, cy) = ParsePosition(prompt);
-            actions.Add(ShapeCenter(userId, ShapeType.Circle, cx - 20, cy - 15, 35, 35, color, color));
-            actions.Add(ShapeCenter(userId, ShapeType.Circle, cx + 20, cy - 15, 35, 35, color, color));
-            actions.Add(Shape(userId, ShapeType.Triangle, cx - 38, cy, 76, 50, color, color));
-            return actions;
+            string col = Color(p, "#FF1493");
+            var (cx, cy) = Position(p);
+            a.Add(ShapeCenter(userId, ShapeType.Circle, cx - 28, cy - 20, 50, 50, col, col));
+            a.Add(ShapeCenter(userId, ShapeType.Circle, cx + 28, cy - 20, 50, 50, col, col));
+            a.Add(Shape(userId, ShapeType.Triangle, cx - 52, cy + 2, 104, 62, col, col));
+            return a;
         }
 
-        // === Xe hơi ===
-        if (ContainsAny(prompt, "xe", "car", "ô tô", "xe hơi"))
+        // Xe / car
+        if (Has(p, "xe hơi", "ô tô", "car", "xe ô tô"))
         {
-            string color = ParseColor(prompt, "#E74C3C");
-            var (cx, cy) = ParsePosition(prompt);
-            // Thân xe
-            actions.Add(Shape(userId, ShapeType.Rect, cx - 60, cy - 15, 120, 30, color, color));
-            // Cabin
-            actions.Add(Shape(userId, ShapeType.Rect, cx - 30, cy - 40, 60, 25, "#3498DB", "#3498DB"));
-            // Bánh xe
-            actions.Add(ShapeCenter(userId, ShapeType.Circle, cx - 35, cy + 15, 20, 20, "#333", "#333"));
-            actions.Add(ShapeCenter(userId, ShapeType.Circle, cx + 35, cy + 15, 20, 20, "#333", "#333"));
-            return actions;
+            string col = Color(p, "#E74C3C");
+            var (cx, cy) = Position(p);
+            a.Add(Shape(userId, ShapeType.Rect, cx - 80, cy - 20, 160, 40, col, col));
+            a.Add(Shape(userId, ShapeType.Rect, cx - 45, cy - 55, 90, 35, "#3498DB", "#3498DB"));
+            a.Add(ShapeCenter(userId, ShapeType.Circle, cx - 45, cy + 22, 28, 28, "#333", "#333"));
+            a.Add(ShapeCenter(userId, ShapeType.Circle, cx + 45, cy + 22, 28, 28, "#333", "#333"));
+            return a;
         }
 
-        // === Cầu vồng ===
-        if (ContainsAny(prompt, "cầu vồng", "rainbow"))
+        // Cầu vồng / rainbow
+        if (Has(p, "cầu vồng", "rainbow"))
         {
-            string[] rainbowColors = { "#FF0000", "#FF7F00", "#FFFF00", "#00FF00", "#0000FF", "#4B0082", "#9400D3" };
-            double baseR = 180;
-            for (int i = 0; i < rainbowColors.Length; i++)
-            {
-                double r = baseR - i * 15;
-                actions.Add(ShapeCenter(userId, ShapeType.Ellipse, CanvasW / 2, CanvasH * 0.6, r * 2, r, rainbowColors[i], null, 12));
-            }
-            return actions;
+            string[] cols = { "#FF0000", "#FF7F00", "#FFFF00", "#00CC00", "#0000FF", "#4B0082", "#9400D3" };
+            for (int i = 0; i < cols.Length; i++)
+                a.Add(ShapeCenter(userId, ShapeType.Ellipse, W / 2, H * 0.65,
+                    (220 - i * 20) * 2, 220 - i * 20, cols[i], null, 14));
+            return a;
         }
 
-        return actions;
+        // Mây / cloud (standalone)
+        if (Has(p, "đám mây", "cloud", "mây"))
+        {
+            var (cx, cy) = Position(p);
+            return DrawCloud(userId, cx, cy);
+        }
+
+        // Ngôi sao / star (explicit standalone — 1 star, not repeated)
+        if (Has(p, "ngôi sao 5 cánh", "five-pointed star", "pentagram"))
+        {
+            string col = Color(p, "#FFD700");
+            var (cx, cy) = Position(p);
+            double sz = Size(p);
+            a.Add(ShapeCenter(userId, ShapeType.Star, cx, cy, sz, sz, col, col));
+            return a;
+        }
+
+        return a;
     }
 
-    private static List<DrawActionBase> ParseSingle(string prompt, string userId)
+    // ─── Repeated shapes ("vẽ 3 hình tròn") ──────────────────────────────────
+
+    private static List<DrawActionBase> ParseRepeated(string p, string userId)
     {
+        // Match patterns like "3 circles", "5 hình tròn", "vẽ 4 ngôi sao"
+        var m = Regex.Match(p, @"\b(\d+)\s+(?:hình\s+)?(tròn|circle|vuông|square|tam giác|triangle|ngôi sao|star|chữ nhật|rectangle)\b", RegexOptions.IgnoreCase);
+        if (!m.Success)
+            m = Regex.Match(p, @"(?:draw|vẽ)\s+(\d+)\s+(\w+)", RegexOptions.IgnoreCase);
+        if (!m.Success) return new();
+
+        if (!int.TryParse(m.Groups[1].Value, out int count) || count < 1 || count > 20) return new();
+        var shapeWord = m.Groups[2].Value.ToLower();
+
+        ShapeType sType;
+        if (Has(shapeWord, "tròn", "circle")) sType = ShapeType.Circle;
+        else if (Has(shapeWord, "vuông", "square")) sType = ShapeType.Rect;
+        else if (Has(shapeWord, "tam giác", "triangle")) sType = ShapeType.Triangle;
+        else if (Has(shapeWord, "sao", "star")) sType = ShapeType.Star;
+        else if (Has(shapeWord, "chữ nhật", "rectangle")) sType = ShapeType.Ellipse;
+        else return new();
+
+        string col = Color(p, RandomBright());
+        double sz = Size(p) * 0.8;
+        double margin = sz + 20;
+        double usableW = W - margin * 2;
         var actions = new List<DrawActionBase>();
-        string color = ParseColor(prompt, "#000000");
-        var (x, y) = ParsePosition(prompt);
-        double size = ParseSize(prompt);
 
-        if (ContainsAny(prompt, "tròn", "circle"))
-            actions.Add(ShapeCenter(userId, ShapeType.Circle, x, y, size, size, color, HasFill(prompt) ? color : null));
-        else if (ContainsAny(prompt, "vuông", "square"))
-            actions.Add(Shape(userId, ShapeType.Rect, x - size / 2, y - size / 2, size, size, color, HasFill(prompt) ? color : null));
-        else if (ContainsAny(prompt, "chữ nhật", "rectangle", "rect"))
-            actions.Add(Shape(userId, ShapeType.Rect, x - size * 0.75, y - size / 2, size * 1.5, size, color, HasFill(prompt) ? color : null));
-        else if (ContainsAny(prompt, "tam giác", "triangle"))
-            actions.Add(Shape(userId, ShapeType.Triangle, x - size / 2, y - size / 2, size, size, color, HasFill(prompt) ? color : null));
-        else if (ContainsAny(prompt, "ngôi sao", "star", "sao"))
-            actions.Add(Shape(userId, ShapeType.Star, x - size / 2, y - size / 2, size, size, color, HasFill(prompt) ? color : null));
-        else if (ContainsAny(prompt, "ellipse", "elip"))
-            actions.Add(Shape(userId, ShapeType.Ellipse, x - size * 0.65, y - size / 2, size * 1.3, size, color, HasFill(prompt) ? color : null));
-        else if (ContainsAny(prompt, "đường", "line"))
-            actions.Add(Line(userId, x - size / 2, y, x + size / 2, y, color));
-        else if (ContainsAny(prompt, "text", "chữ", "viết"))
+        for (int i = 0; i < count; i++)
         {
-            string text = ExtractText(prompt);
-            actions.Add(Text(userId, x, y, text, color));
+            double cx = margin + (usableW / Math.Max(count - 1, 1)) * i;
+            if (count == 1) cx = W / 2;
+            double cy = H / 2;
+            string itemColor = Color(p, RandomBright());
+            actions.Add(ShapeCenter(userId, sType, cx, cy, sz, sz, itemColor, HasFill(p) ? itemColor : null));
         }
-
         return actions;
     }
 
-    #region Drawing Helpers
+    // ─── Single-shape parser ──────────────────────────────────────────────────
+
+    private static List<DrawActionBase> ParseSingle(string p, string userId)
+    {
+        var a = new List<DrawActionBase>();
+        string col = Color(p, "#2196F3");
+        var (x, y) = Position(p);
+        double sz = Size(p);
+        bool fill = HasFill(p);
+
+        if (Has(p, "tròn", "circle", "hình tròn"))
+            a.Add(ShapeCenter(userId, ShapeType.Circle, x, y, sz, sz, col, fill ? col : null));
+        else if (Has(p, "elip", "ellipse", "hình elip"))
+            a.Add(ShapeCenter(userId, ShapeType.Ellipse, x, y, sz * 1.5, sz, col, fill ? col : null));
+        else if (Has(p, "vuông", "square", "hình vuông"))
+            a.Add(Shape(userId, ShapeType.Rect, x - sz/2, y - sz/2, sz, sz, col, fill ? col : null));
+        else if (Has(p, "chữ nhật", "rectangle", "rect"))
+            a.Add(Shape(userId, ShapeType.Rect, x - sz*0.75, y - sz/2, sz*1.5, sz, col, fill ? col : null));
+        else if (Has(p, "tam giác", "triangle"))
+            a.Add(Shape(userId, ShapeType.Triangle, x - sz/2, y - sz/2, sz, sz, col, fill ? col : null));
+        else if (Has(p, "ngôi sao", "star", "sao"))
+            a.Add(Shape(userId, ShapeType.Star, x - sz/2, y - sz/2, sz, sz, col, fill ? col : null));
+        else if (Has(p, "đường thẳng", "line", "đường"))
+            a.Add(Line(userId, x - sz/2, y, x + sz/2, y, col));
+        else if (Has(p, "mũi tên", "arrow"))
+            a.Add(new LineAction { UserId = userId, Color = col, StrokeWidth = 3,
+                StartX = x - sz/2, StartY = y, EndX = x + sz/2, EndY = y, HasArrow = true });
+        else if (Has(p, "text", "chữ", "viết", "write"))
+        {
+            var txt = ExtractQuoted(p) ?? "Hello!";
+            a.Add(new TextAction { UserId = userId, X = x - 60, Y = y - 16,
+                Text = txt, Color = col, FontSize = 28 });
+        }
+        else if (Has(p, "xóa", "clear", "xóa tất cả", "clean"))
+        {
+            // Not handled here — return empty so caller can deal with it
+        }
+
+        return a;
+    }
+
+    // ─── Compound drawing helpers ─────────────────────────────────────────────
 
     private static List<DrawActionBase> DrawSun(string userId, double cx, double cy)
     {
-        var actions = new List<DrawActionBase>();
-        actions.Add(ShapeCenter(userId, ShapeType.Circle, cx, cy, 50, 50, "#FFD700", "#FFD700"));
+        var a = new List<DrawActionBase>();
+        a.Add(ShapeCenter(userId, ShapeType.Circle, cx, cy, 70, 70, "#FFD700", "#FFD700"));
         for (int i = 0; i < 12; i++)
         {
-            double angle = i * Math.PI / 6;
-            actions.Add(Line(userId,
-                cx + 30 * Math.Cos(angle), cy + 30 * Math.Sin(angle),
-                cx + 55 * Math.Cos(angle), cy + 55 * Math.Sin(angle),
-                "#FFD700", 3));
+            double ang = i * Math.PI / 6;
+            a.Add(Line(userId,
+                cx + 42 * Math.Cos(ang), cy + 42 * Math.Sin(ang),
+                cx + 72 * Math.Cos(ang), cy + 72 * Math.Sin(ang),
+                "#FFD700", 4));
         }
-        return actions;
+        return a;
     }
 
     private static List<DrawActionBase> DrawCloud(string userId, double cx, double cy)
     {
-        var actions = new List<DrawActionBase>();
-        actions.Add(ShapeCenter(userId, ShapeType.Circle, cx, cy, 40, 40, "#FFF", "#FFF"));
-        actions.Add(ShapeCenter(userId, ShapeType.Circle, cx + 25, cy - 5, 35, 35, "#FFF", "#FFF"));
-        actions.Add(ShapeCenter(userId, ShapeType.Circle, cx - 25, cy + 5, 30, 30, "#FFF", "#FFF"));
-        actions.Add(ShapeCenter(userId, ShapeType.Circle, cx + 10, cy + 10, 35, 35, "#FFF", "#FFF"));
-        return actions;
+        var a = new List<DrawActionBase>();
+        a.Add(ShapeCenter(userId, ShapeType.Circle, cx,      cy,      60, 60, "#FFF", "#FFF"));
+        a.Add(ShapeCenter(userId, ShapeType.Circle, cx + 40, cy - 8,  50, 50, "#FFF", "#FFF"));
+        a.Add(ShapeCenter(userId, ShapeType.Circle, cx - 35, cy + 8,  45, 45, "#FFF", "#FFF"));
+        a.Add(ShapeCenter(userId, ShapeType.Circle, cx + 12, cy + 14, 52, 52, "#FFF", "#FFF"));
+        return a;
     }
 
     private static List<DrawActionBase> DrawTree(string userId, double cx, double cy)
     {
-        var actions = new List<DrawActionBase>();
-        // Thân cây
-        actions.Add(Shape(userId, ShapeType.Rect, cx - 10, cy, 20, 60, "#8B4513", "#8B4513"));
-        // Tán lá
-        actions.Add(ShapeCenter(userId, ShapeType.Circle, cx, cy - 10, 60, 60, "#228B22", "#32CD32"));
-        actions.Add(ShapeCenter(userId, ShapeType.Circle, cx - 20, cy, 40, 40, "#228B22", "#2E8B57"));
-        actions.Add(ShapeCenter(userId, ShapeType.Circle, cx + 20, cy, 40, 40, "#228B22", "#2E8B57"));
-        return actions;
+        var a = new List<DrawActionBase>();
+        a.Add(Shape(userId, ShapeType.Rect, cx - 14, cy, 28, 80, "#8B4513", "#8B4513"));
+        a.Add(ShapeCenter(userId, ShapeType.Circle, cx,      cy - 15, 80, 80, "#228B22", "#32CD32"));
+        a.Add(ShapeCenter(userId, ShapeType.Circle, cx - 30, cy + 4,  55, 55, "#228B22", "#2E8B57"));
+        a.Add(ShapeCenter(userId, ShapeType.Circle, cx + 30, cy + 4,  55, 55, "#228B22", "#2E8B57"));
+        return a;
     }
 
     private static List<DrawActionBase> DrawHouse(string userId, double cx, double cy)
     {
-        var actions = new List<DrawActionBase>();
-        // Tường
-        actions.Add(Shape(userId, ShapeType.Rect, cx - 50, cy, 100, 80, "#8B4513", "#DEB887"));
-        // Mái
-        actions.Add(Shape(userId, ShapeType.Triangle, cx - 60, cy, 120, 50, "#B22222", "#B22222"));
-        // Cửa
-        actions.Add(Shape(userId, ShapeType.Rect, cx - 12, cy + 40, 24, 40, "#654321", "#654321"));
-        // Cửa sổ
-        actions.Add(Shape(userId, ShapeType.Rect, cx + 20, cy + 20, 20, 20, "#87CEEB", "#87CEEB"));
-        actions.Add(Shape(userId, ShapeType.Rect, cx - 40, cy + 20, 20, 20, "#87CEEB", "#87CEEB"));
+        var a = new List<DrawActionBase>();
+        a.Add(Shape(userId,   ShapeType.Rect,     cx - 65, cy,      130, 100, "#8B4513", "#DEB887"));
+        a.Add(Shape(userId,   ShapeType.Triangle,  cx - 80, cy,      160, 65,  "#B22222", "#B22222"));
+        a.Add(Shape(userId,   ShapeType.Rect,     cx - 16, cy + 50, 32, 50,  "#654321", "#654321"));
+        a.Add(Shape(userId,   ShapeType.Rect,     cx + 26, cy + 24, 25, 25,  "#87CEEB", "#87CEEB"));
+        a.Add(Shape(userId,   ShapeType.Rect,     cx - 52, cy + 24, 25, 25,  "#87CEEB", "#87CEEB"));
+        return a;
+    }
+
+    // ─── Parsing helpers ──────────────────────────────────────────────────────
+
+    private static string Color(string p, string def)
+    {
+        if (Has(p, "đỏ", "red"))               return "#F44336";
+        if (Has(p, "xanh dương", "blue", "xanh da trời")) return "#2196F3";
+        if (Has(p, "xanh lá", "green", "xanh lục"))       return "#4CAF50";
+        if (Has(p, "vàng", "yellow"))           return "#FFD700";
+        if (Has(p, "cam", "orange"))            return "#FF9800";
+        if (Has(p, "tím", "purple", "violet"))  return "#9C27B0";
+        if (Has(p, "hồng", "pink"))             return "#E91E63";
+        if (Has(p, "trắng", "white"))           return "#FFFFFF";
+        if (Has(p, "đen", "black"))             return "#212121";
+        if (Has(p, "nâu", "brown"))             return "#795548";
+        if (Has(p, "xám", "gray", "grey"))      return "#9E9E9E";
+        if (Has(p, "cyan", "xanh ngọc"))        return "#00BCD4";
+
+        var m = Regex.Match(p, @"#[0-9a-fA-F]{6}");
+        return m.Success ? m.Value : def;
+    }
+
+    private static (double x, double y) Position(string p)
+    {
+        if (Has(p, "giữa", "center", "chính giữa", "middle")) return (W / 2, H / 2);
+        if (Has(p, "góc trái trên", "top left"))               return (150, 130);
+        if (Has(p, "góc phải trên", "top right"))              return (W - 150, 130);
+        if (Has(p, "góc trái dưới", "bottom left"))            return (150, H - 130);
+        if (Has(p, "góc phải dưới", "bottom right"))           return (W - 150, H - 130);
+        if (Has(p, "trên", "top"))                             return (W / 2, 130);
+        if (Has(p, "dưới", "bottom"))                          return (W / 2, H - 130);
+        if (Has(p, "trái", "left"))                            return (150, H / 2);
+        if (Has(p, "phải", "right"))                           return (W - 150, H / 2);
+
+        var m = Regex.Match(p, @"(?:at|tại|vị trí|pos)\s+(\d+)[,\s]+(\d+)");
+        if (m.Success)
+            return (double.Parse(m.Groups[1].Value), double.Parse(m.Groups[2].Value));
+
+        return (W / 2, H / 2);
+    }
+
+    private static double Size(string p)
+    {
+        if (Has(p, "rất nhỏ", "tiny", "very small")) return 30;
+        if (Has(p, "nhỏ", "small", "bé"))            return 60;
+        if (Has(p, "rất to", "very big", "huge", "khổng lồ")) return 220;
+        if (Has(p, "to", "lớn", "big", "large"))      return 130;
+
+        var m = Regex.Match(p, @"(?:size|kích thước|r|radius|cỡ)\s*=?\s*(\d+)");
+        if (m.Success) return double.Parse(m.Groups[1].Value);
+
+        return 100;
+    }
+
+    private static bool HasFill(string p) =>
+        Has(p, "tô", "fill", "đặc", "tô màu", "solid", "filled");
+
+    private static string? ExtractQuoted(string p)
+    {
+        var m = Regex.Match(p, "\"([^\"]+)\"");
+        if (m.Success) return m.Groups[1].Value;
+        m = Regex.Match(p, "'([^']+)'");
+        if (m.Success) return m.Groups[1].Value;
+        return null;
+    }
+
+    private static bool Has(string text, params string[] kw) =>
+        kw.Any(k => text.Contains(k, StringComparison.OrdinalIgnoreCase));
+
+    private static string RandomBright()
+    {
+        string[] colors = { "#F44336","#E91E63","#9C27B0","#2196F3","#00BCD4",
+                            "#4CAF50","#FF9800","#FFD700","#FF5722","#607D8B" };
+        return colors[Rng.Next(colors.Length)];
+    }
+
+    // ─── DrawAction factories ─────────────────────────────────────────────────
+
+    private static ShapeAction Shape(string uid, ShapeType t, double x, double y, double w, double h,
+        string col, string? fill, double sw = 2) =>
+        new() { UserId = uid, Id = Guid.NewGuid().ToString(),
+                ShapeType = t, X = x, Y = y, Width = w, Height = h,
+                Color = col, FillColor = fill, StrokeWidth = sw };
+
+    private static ShapeAction ShapeCenter(string uid, ShapeType t, double cx, double cy, double w, double h,
+        string col, string? fill, double sw = 2) =>
+        new() { UserId = uid, Id = Guid.NewGuid().ToString(),
+                ShapeType = t, X = cx, Y = cy, Width = w, Height = h,
+                Color = col, FillColor = fill, StrokeWidth = sw };
+
+    private static LineAction Line(string uid, double x1, double y1, double x2, double y2,
+        string col, double sw = 2) =>
+        new() { UserId = uid, Id = Guid.NewGuid().ToString(),
+                Color = col, StrokeWidth = sw,
+                StartX = x1, StartY = y1, EndX = x2, EndY = y2 };
+
+    // ─── Post-processing ──────────────────────────────────────────────────────
+
+    private static List<DrawActionBase> Stamp(List<DrawActionBase> actions, string userId)
+    {
+        foreach (var a in actions)
+        {
+            if (string.IsNullOrEmpty(a.Id))    a.Id     = Guid.NewGuid().ToString();
+            if (string.IsNullOrEmpty(a.UserId)) a.UserId = userId;
+        }
         return actions;
     }
-
-    #endregion
-
-    #region Parsing Helpers
-
-    private static string ParseColor(string prompt, string defaultColor)
-    {
-        if (ContainsAny(prompt, "đỏ", "red")) return "#FF0000";
-        if (ContainsAny(prompt, "xanh dương", "blue", "xanh da trời")) return "#0000FF";
-        if (ContainsAny(prompt, "xanh lá", "green", "xanh lục")) return "#00FF00";
-        if (ContainsAny(prompt, "vàng", "yellow")) return "#FFD700";
-        if (ContainsAny(prompt, "cam", "orange")) return "#FF8C00";
-        if (ContainsAny(prompt, "tím", "purple")) return "#800080";
-        if (ContainsAny(prompt, "hồng", "pink")) return "#FF69B4";
-        if (ContainsAny(prompt, "trắng", "white")) return "#FFFFFF";
-        if (ContainsAny(prompt, "đen", "black")) return "#000000";
-        if (ContainsAny(prompt, "nâu", "brown")) return "#8B4513";
-
-        // Try hex color in prompt
-        var match = Regex.Match(prompt, @"#[0-9a-fA-F]{6}");
-        if (match.Success) return match.Value;
-
-        return defaultColor;
-    }
-
-    private static (double x, double y) ParsePosition(string prompt)
-    {
-        if (ContainsAny(prompt, "giữa", "center", "chính giữa")) return (CanvasW / 2, CanvasH / 2);
-        if (ContainsAny(prompt, "góc trái trên", "top left")) return (120, 120);
-        if (ContainsAny(prompt, "góc phải trên", "top right")) return (CanvasW - 120, 120);
-        if (ContainsAny(prompt, "góc trái dưới", "bottom left")) return (120, CanvasH - 120);
-        if (ContainsAny(prompt, "góc phải dưới", "bottom right")) return (CanvasW - 120, CanvasH - 120);
-        if (ContainsAny(prompt, "trên", "top")) return (CanvasW / 2, 120);
-        if (ContainsAny(prompt, "dưới", "bottom")) return (CanvasW / 2, CanvasH - 120);
-        if (ContainsAny(prompt, "trái", "left")) return (120, CanvasH / 2);
-        if (ContainsAny(prompt, "phải", "right")) return (CanvasW - 120, CanvasH / 2);
-
-        var match = Regex.Match(prompt, @"(?:at|tại|vị trí)\s+(\d+)\s+(\d+)");
-        if (match.Success) return (double.Parse(match.Groups[1].Value), double.Parse(match.Groups[2].Value));
-
-        return (CanvasW / 2, CanvasH / 2);
-    }
-
-    private static double ParseSize(string prompt)
-    {
-        if (ContainsAny(prompt, "nhỏ", "small", "bé")) return 40;
-        if (ContainsAny(prompt, "rất to", "very big", "huge")) return 160;
-        if (ContainsAny(prompt, "to", "lớn", "big", "large")) return 100;
-
-        var match = Regex.Match(prompt, @"(?:size|kích thước|r|radius)\s*=?\s*(\d+)");
-        if (match.Success) return double.Parse(match.Groups[1].Value);
-
-        return 80;
-    }
-
-    private static bool HasFill(string prompt) =>
-        ContainsAny(prompt, "tô", "fill", "đặc", "tô màu", "solid");
-
-    private static string ExtractText(string prompt)
-    {
-        var match = Regex.Match(prompt, "\"([^\"]+)\"");
-        if (match.Success) return match.Groups[1].Value;
-        match = Regex.Match(prompt, "'([^']+)'");
-        if (match.Success) return match.Groups[1].Value;
-        return "Hello!";
-    }
-
-    private static bool ContainsAny(string text, params string[] keywords) =>
-        keywords.Any(k => text.Contains(k, StringComparison.OrdinalIgnoreCase));
-
-    #endregion
-
-    #region DrawAction Factory
-
-    private static ShapeAction Shape(string userId, ShapeType type, double x, double y, double w, double h,
-        string color, string? fill, double strokeWidth = 2) => new()
-    {
-        UserId = userId, ShapeType = type,
-        X = x, Y = y, Width = w, Height = h,
-        Color = color, FillColor = fill, StrokeWidth = strokeWidth
-    };
-
-    private static ShapeAction ShapeCenter(string userId, ShapeType type, double cx, double cy, double w, double h,
-        string color, string? fill, double strokeWidth = 2) => new()
-    {
-        UserId = userId, ShapeType = type,
-        X = cx, Y = cy, Width = w, Height = h,
-        Color = color, FillColor = fill, StrokeWidth = strokeWidth
-    };
-
-    private static LineAction Line(string userId, double x1, double y1, double x2, double y2,
-        string color, double strokeWidth = 2) => new()
-    {
-        UserId = userId, Color = color, StrokeWidth = strokeWidth,
-        StartX = x1, StartY = y1, EndX = x2, EndY = y2
-    };
-
-    private static TextAction Text(string userId, double x, double y, string text, string color) => new()
-    {
-        UserId = userId, X = x, Y = y, Text = text, Color = color, FontSize = 24
-    };
-
-    #endregion
 }

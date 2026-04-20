@@ -26,16 +26,14 @@ public class RemotePresenceManager
 
             var cursorPath = new Path
             {
-                // Clean Microsoft Whiteboard-style arrow pointer
+                // Clean Microsoft Whiteboard-style arrow pointer with integrated white outline for
+                // contrast against any background — avoids needing a DropShadowEffect (which forces
+                // software rendering and causes mouse-move lag).
                 Data = Geometry.Parse("M0,0 L0,16 L4,12 L7,18 L9,17 L6,11 L11,11 Z"),
                 Fill = brush,
                 Stroke = Brushes.White,
-                StrokeThickness = 1.2,
-                IsHitTestVisible = false,
-                Effect = new DropShadowEffect
-                {
-                    Color = Colors.Black, Opacity = 0.35, BlurRadius = 4, ShadowDepth = 1
-                }
+                StrokeThickness = 1.5,
+                IsHitTestVisible = false
             };
             var label = new Border
             {
@@ -50,11 +48,9 @@ public class RemotePresenceManager
                 Background = brush,
                 CornerRadius = new CornerRadius(8),
                 Padding = new Thickness(7, 2, 7, 2),
-                IsHitTestVisible = false,
-                Effect = new DropShadowEffect
-                {
-                    Color = Colors.Black, Opacity = 0.3, BlurRadius = 6, ShadowDepth = 1
-                }
+                IsHitTestVisible = false
+                // No DropShadowEffect — animating an element with an effect re-rasterizes on every
+                // frame and tanks mouse responsiveness with multiple remote users in a room.
             };
             canvas.Children.Add(cursorPath);
             canvas.Children.Add(label);

@@ -28,6 +28,7 @@ public partial class MainWindow : Window
     private bool _isPanning;
     private Point _panStart;
     private double _panStartX, _panStartY;
+    private bool _spaceHeld;
 
     // Select tool state (needs UIElement access)
     private UIElement? _selectedElement;
@@ -81,6 +82,7 @@ public partial class MainWindow : Window
         };
 
         KeyDown += MainWindow_KeyDown;
+        KeyUp += MainWindow_KeyUp;
         Closing += (_, _) => vm.Network.Disconnect();
     }
 
@@ -355,23 +357,83 @@ public partial class MainWindow : Window
 
     private void Canvas_RightButtonDown(object sender, MouseButtonEventArgs e)
     {
-        _isPanning = true; _panStart = e.GetPosition(CanvasWrapper);
-        _panStartX = CanvasPan.X; _panStartY = CanvasPan.Y; CanvasWrapper.CaptureMouse();
+        StartPan(e.GetPosition(CanvasWrapper));
+        e.Handled = true;
     }
 
     private void Canvas_RightButtonUp(object sender, MouseButtonEventArgs e)
-    { _isPanning = false; CanvasWrapper.ReleaseMouseCapture(); }
+    {
+        StopPan();
+        e.Handled = true;
+    }
+
+    // Universal pan: middle-button drag, OR Space+left-drag (Figma-style)
+    private void CanvasWrapper_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton == MouseButton.Middle ||
+            (e.ChangedButton == MouseButton.Left && _spaceHeld))
+        {
+            StartPan(e.GetPosition(CanvasWrapper));
+            e.Handled = true; // prevent drawing
+        }
+    }
+
+    private void CanvasWrapper_PreviewMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_isPanning && (e.ChangedButton == MouseButton.Middle ||
+                           e.ChangedButton == MouseButton.Left))
+        {
+            StopPan();
+            e.Handled = true;
+        }
+    }
+
+    private void StartPan(Point startPos)
+    {
+        _isPanning = true;
+        _panStart = startPos;
+        _panStartX = CanvasPan.X;
+        _panStartY = CanvasPan.Y;
+        CanvasWrapper.CaptureMouse();
+        CanvasWrapper.Cursor = System.Windows.Input.Cursors.ScrollAll;
+        BrushCursor.Visibility = Visibility.Collapsed;
+    }
+
+    private void StopPan()
+    {
+        if (!_isPanning) return;
+        _isPanning = false;
+        CanvasWrapper.ReleaseMouseCapture();
+        UpdateBrushCursor();
+        if (CanvasWrapper.IsMouseOver &&
+            _vm.Toolbar.ActiveTool != DrawTool.Select &&
+            _vm.Toolbar.ActiveTool != DrawTool.Text)
+        {
+            BrushCursor.Visibility = Visibility.Visible;
+        }
+    }
+
+    // Safety net: if we lose mouse capture unexpectedly (e.g. user releases the button off-screen,
+    // alt-tab, or system takes focus), reset all drag state so the next click works normally.
+    private void CanvasWrapper_LostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (_isPanning)
+        {
+            _isPanning = false;
+            UpdateBrushCursor();
+        }
+    }
 
     private void CanvasWrapper_MouseMove(object sender, MouseEventArgs e)
     {
         var current = e.GetPosition(CanvasWrapper);
 
-        // Update local brush cursor overlay (screen-space)
+        // Update local brush cursor overlay (screen-space). Use explicit Width/Height,
+        // not ActualWidth — the latter is 0 before layout runs, causing first-frame glitch.
         if (BrushCursor.Visibility == Visibility.Visible)
         {
-            // Center cursor on mouse position
-            Canvas.SetLeft(BrushCursor, current.X - BrushCursor.ActualWidth / 2);
-            Canvas.SetTop(BrushCursor, current.Y - BrushCursor.ActualHeight / 2);
+            Canvas.SetLeft(BrushCursor, current.X - BrushCursor.Width / 2);
+            Canvas.SetTop(BrushCursor, current.Y - BrushCursor.Height / 2);
         }
 
         if (!_isPanning) return;
@@ -383,7 +445,13 @@ public partial class MainWindow : Window
     {
         UpdateBrushCursor();
         if (_vm.Toolbar.ActiveTool != DrawTool.Select && _vm.Toolbar.ActiveTool != DrawTool.Text)
+        {
+            // Position immediately at current mouse pos so cursor doesn't flash at top-left
+            var p = e.GetPosition(CanvasWrapper);
+            Canvas.SetLeft(BrushCursor, p.X - BrushCursor.Width / 2);
+            Canvas.SetTop(BrushCursor, p.Y - BrushCursor.Height / 2);
             BrushCursor.Visibility = Visibility.Visible;
+        }
     }
 
     private void CanvasWrapper_MouseLeave(object sender, MouseEventArgs e)
@@ -723,6 +791,20 @@ public partial class MainWindow : Window
     private void MainWindow_KeyDown(object sender, KeyEventArgs e)
     {
         if (Keyboard.FocusedElement is TextBox) return;
+
+        // Space held → enable Figma-style pan (left-drag)
+        if (e.Key == Key.Space && !_spaceHeld)
+        {
+            _spaceHeld = true;
+            if (!_isPanning && CanvasWrapper.IsMouseOver)
+            {
+                CanvasWrapper.Cursor = System.Windows.Input.Cursors.Hand;
+                BrushCursor.Visibility = Visibility.Collapsed;
+            }
+            e.Handled = true;
+            return;
+        }
+
         switch (e.Key)
         {
             case Key.V: BtnSelect_Click(BtnSelect, new RoutedEventArgs()); break;
@@ -741,6 +823,25 @@ public partial class MainWindow : Window
             case Key.S when Keyboard.Modifiers == ModifierKeys.Control: BtnSave_Click(null!, new RoutedEventArgs()); e.Handled = true; break;
             case Key.O when Keyboard.Modifiers == ModifierKeys.Control: BtnLoad_Click(null!, new RoutedEventArgs()); e.Handled = true; break;
             case Key.D0 when Keyboard.Modifiers == ModifierKeys.Control: BtnZoomReset_Click(null!, new RoutedEventArgs()); break;
+        }
+    }
+
+    private void MainWindow_KeyUp(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Space && _spaceHeld)
+        {
+            _spaceHeld = false;
+            if (!_isPanning)
+            {
+                UpdateBrushCursor();
+                if (CanvasWrapper.IsMouseOver &&
+                    _vm.Toolbar.ActiveTool != DrawTool.Select &&
+                    _vm.Toolbar.ActiveTool != DrawTool.Text)
+                {
+                    BrushCursor.Visibility = Visibility.Visible;
+                }
+            }
+            e.Handled = true;
         }
     }
 

@@ -42,34 +42,69 @@ NetDraw là ứng dụng vẽ cộng tác real-time qua mạng TCP, cho phép nh
 NetDraw/
 ├── NetDraw.sln
 │
-├── NetDraw.Shared/              # Thư viện dùng chung
+├── NetDraw.Shared/                 # Thư viện dùng chung (DTO + Protocol)
 │   ├── Protocol/
-│   │   ├── MessageType.cs       # Enum các loại message
-│   │   └── NetMessage.cs        # Định dạng message (serialize/deserialize)
+│   │   ├── MessageType.cs          # Enum các loại message
+│   │   ├── MessageEnvelope.cs      # Bọc/parse message + payload polymorphic
+│   │   ├── NetMessage.cs           # Factory tạo message typed
+│   │   └── Payloads/               # Các payload chuyên biệt (Draw, Chat, AI, User...)
 │   └── Models/
-│       ├── DrawAction.cs        # Model hành động vẽ (pen, line, shape, text, eraser, image...)
-│       └── RoomInfo.cs          # Model Room, User, Chat, AI payload, Cursor, DrawingFile
+│       ├── Actions/                # DrawActionBase + PenAction, LineAction, ShapeAction, TextAction...
+│       │   └── DrawActionConverter.cs  # JSON polymorphic converter
+│       └── RoomInfo.cs             # Room, UserInfo, Cursor, DrawingFile
 │
-├── NetDraw.Server/              # TCP Server
-│   ├── Program.cs               # Entry point (mặc định port 5000)
-│   ├── DrawServer.cs            # Server chính: accept connection, route message, kết nối MCP
-│   ├── ClientHandler.cs         # Xử lý từng client (đọc/gửi message)
-│   ├── Room.cs                  # Quản lý phòng: danh sách user, lịch sử vẽ, broadcast
-│   └── FallbackAiParser.cs      # Parser AI dự phòng khi MCP chưa kết nối
+├── NetDraw.Server/                 # TCP Server (port 5000)
+│   ├── Program.cs                  # Entry point + DI wiring
+│   ├── DrawServer.cs               # Listener, accept loop, MCP bootstrap
+│   ├── ClientHandler.cs            # Mỗi client 1 instance — đọc/ghi NDJSON frames
+│   ├── Room.cs                     # State phòng: user list, history, undo stack
+│   ├── Ai/
+│   │   └── FallbackAiParser.cs     # Parser rule-based khi MCP offline
+│   ├── Pipeline/
+│   │   ├── IMessageHandler.cs      # Contract xử lý từng MessageType
+│   │   └── MessageDispatcher.cs    # Route message → handler phù hợp
+│   ├── Handlers/                   # Xử lý nghiệp vụ theo từng loại message
+│   │   ├── RoomHandler.cs          # Join/Leave/Snapshot
+│   │   ├── DrawHandler.cs          # Draw, DrawPreview, Clear, Undo, Redo
+│   │   ├── ObjectHandler.cs        # MoveObject, DeleteObject
+│   │   ├── PresenceHandler.cs      # Cursor move, live preview
+│   │   ├── ChatHandler.cs          # ChatMessage
+│   │   └── AiHandler.cs            # AiCommand — fire-and-forget sang MCP (không block loop)
+│   └── Services/
+│       ├── IRoomService / RoomService     # Quản lý nhiều phòng + broadcast
+│       ├── IClientRegistry / ClientRegistry
+│       └── IMcpClient / McpClient         # TCP client đến MCP (auto-reconnect, timeout, semaphore)
 │
-├── NetDraw.Client/              # WPF Client
-│   ├── MainWindow.xaml/cs       # Giao diện chính + logic vẽ, kết nối, chat, AI
-│   ├── NetworkClient.cs         # TCP client wrapper (connect, send, receive)
-│   ├── CanvasRenderer.cs        # Render DrawAction thành WPF UIElement
-│   ├── ColorPickerDialog.xaml/cs    # Bảng chọn màu tùy chỉnh (RGB, HEX, 39+ quick colors)
-│   ├── ImageImportDialog.xaml/cs    # Import ảnh với bộ lọc (đen trắng, sepia, sketch...)
-│   ├── TemplateDialog.xaml/cs       # Chọn template mẫu (grid, wireframe, flowchart...)
-│   └── InputDialog.xaml/cs          # Dialog nhập text
+├── NetDraw.Client/                 # WPF Client (MVVM)
+│   ├── App.xaml/cs                 # Composition root + DI manual
+│   ├── MainWindow.xaml/cs          # Shell view + chuột/bàn phím/pan/zoom
+│   ├── ViewModels/
+│   │   ├── MainViewModel.cs        # Coordinator, xử lý message nhận từ server
+│   │   ├── CanvasViewModel.cs      # State canvas (actions, zoom, pan)
+│   │   ├── ToolbarViewModel.cs     # Tool hiện tại, màu, size, opacity
+│   │   ├── ChatViewModel.cs        # Lịch sử chat
+│   │   └── UserListViewModel.cs    # Danh sách user online
+│   ├── Services/
+│   │   ├── INetworkService / NetworkService   # TCP client wrapper
+│   │   └── IFileService / FileService         # Save/Open .ndr + export PNG
+│   ├── Drawing/
+│   │   ├── ICanvasRenderer / WpfCanvasRenderer  # DrawAction → WPF UIElement (Bezier-smooth pen)
+│   │   ├── HistoryManager.cs       # Undo/Redo stack
+│   │   └── RemotePresenceManager.cs # Con trỏ/tên user khác (animated, no DropShadow)
+│   ├── Infrastructure/
+│   │   ├── ViewModelBase.cs        # INotifyPropertyChanged helper
+│   │   ├── RelayCommand.cs         # ICommand adapter
+│   │   └── EventAggregator.cs      # Pub/sub cross-VM
+│   ├── ColorPickerDialog.xaml/cs       # Bảng chọn màu (RGB slider, HEX, 39+ quick colors)
+│   ├── ImageImportDialog.xaml/cs       # Import ảnh + bộ lọc (đen trắng, sepia, sketch...)
+│   ├── TemplateDialog.xaml/cs          # Chọn template mẫu (grid, wireframe, flowchart...)
+│   ├── TextInputDialog.xaml/cs         # Dialog nhập text
+│   └── InputDialog.xaml/cs             # Dialog nhập chung
 │
-└── NetDraw.McpServer/           # MCP Server (AI)
-    ├── Program.cs               # Entry point (mặc định port 5001)
-    ├── McpDrawServer.cs         # MCP TCP server, tích hợp Claude API
-    └── EnhancedAiParser.cs      # Parser AI nâng cao (rule-based, hỗ trợ scene phức tạp)
+└── NetDraw.McpServer/              # MCP Server AI (port 5001)
+    ├── Program.cs                  # args: [port] [apiKey]
+    ├── McpDrawServer.cs            # TCP server, gọi Claude API, timeout 90 s, xử lý concurrent
+    └── EnhancedAiParser.cs         # Parser AI rule-based (fallback khi không có API key)
 ```
 
 ## Giao thức truyền thông
@@ -150,8 +185,50 @@ dotnet run --project NetDraw.Client
 Để sử dụng AI nâng cao thay vì rule-based parser:
 
 ```bash
+# Cách 1: env var
 set CLAUDE_API_KEY=sk-ant-xxxxx
 dotnet run --project NetDraw.McpServer
+
+# Cách 2: truyền qua args (port + key)
+dotnet run --project NetDraw.McpServer -- 5001 sk-ant-xxxxx
+```
+
+Server sẽ in `Mode: AI-powered (Claude API)` khi khởi động thành công. Nếu không có key thì chạy `Mode: Rule-based`.
+
+### Độ bền của pipeline AI
+
+Pipeline AI được thiết kế để **không bao giờ block** các luồng khác (cursor, draw, chat) của user gửi lệnh AI:
+
+| Cơ chế | Vị trí | Mục đích |
+|---|---|---|
+| Fire-and-forget `Task.Run` | `AiHandler.HandleAsync` | Trả `Task.CompletedTask` ngay, xử lý AI nền |
+| SemaphoreSlim (1 slot) | `McpClient` | 1 request đang bay trên TCP pipe tại 1 thời điểm |
+| Client timeout 60 s | `McpClient.ReadLineAsync` | Không đợi AI chậm vô thời hạn |
+| Close socket on timeout | `McpClient` | Bỏ response cũ kẹt lại, tránh mismatch request/response |
+| Auto-reconnect loop | `McpClient.MaintainConnectionLoopAsync` | Tự kết nối lại khi MCP restart |
+| `Interlocked.Exchange` connection | `McpDrawServer` | Thay connection cũ khi DrawServer reconnect |
+| Server timeout 90 s | `CallClaudeApiAsync` | `HttpClient.Timeout` bảo vệ Claude API call |
+| Fallback rule-based | `FallbackAiParser` + `EnhancedAiParser` | Luôn có kết quả dù MCP/Claude lỗi |
+
+### Log pipeline AI
+
+Các log có tiền tố rõ ràng, in kèm thời gian (`ms`) theo từng giai đoạn:
+
+```
+[AI] ▶ "vẽ hình tròn đỏ"  sender=5fc12013  room=default  mcp=connected
+[AI]   → forwarding to MCP server…
+[MCP] Waiting for send lock…  (command: "vẽ hình tròn đỏ")
+[MCP] → Sending to McpServer…
+[MCP]   sent in 2 ms, waiting for response…
+[McpServer] ▶ "vẽ hình tròn đỏ"  sender=5fc12013  room=default
+[McpServer]   → calling Claude API…
+[McpServer]   ← Claude API returned in 3421 ms  (1 actions)
+[McpServer] ✔ sent 1 action(s) in 3445 ms total
+[MCP] ← Response received in 3460 ms
+[MCP]   parsed: 1 action(s)
+[AI]   ← MCP replied in 3462 ms  actions=1
+[AI] ✔ done in 3475 ms  → 1 action(s) broadcast
+[Client] AiResult received: actions=1  error=none
 ```
 
 ## Kết nối mạng & Triển khai
@@ -488,7 +565,10 @@ Test-NetConnection -ComputerName 113.160.x.x -Port 5000
 - Xóa đối tượng đã chọn (Delete)
 - Undo / Redo (hỗ trợ undo theo nhóm cho template)
 - Xóa toàn bộ canvas
-- Pan (kéo chuột phải) & Zoom (scroll wheel, 20%-500%)
+- **Pan** đa dạng: chuột phải kéo / chuột giữa kéo / Space + chuột trái kéo (Figma-style)
+- **Zoom** bằng scroll wheel (20%-500%)
+- **Nét vẽ mượt**: pen/highlighter dùng Catmull-Rom → Bezier cubic (không gãy góc)
+- **Con trỏ chuột tùy chỉnh**: ring co giãn theo stroke size + zoom, đổi màu theo tool
 - Lưu / Mở project (.ndr) - lưu toàn bộ bản vẽ bao gồm ảnh import
 - Xuất ảnh PNG
 
@@ -508,10 +588,10 @@ Test-NetConnection -ComputerName 113.160.x.x -Port 5000
 - Hệ thống phòng vẽ (tạo/join/leave)
 - Đồng bộ canvas giữa tất cả user trong phòng
 - **Live Drawing Preview** - user khác thấy nét vẽ đang hình thành real-time
-- Con trỏ chuột real-time - hiển thị vị trí và tên user khác trên canvas
+- **Con trỏ remote mượt** - dùng `DoubleAnimation` + `CubicEase` (không còn giật, không DropShadow)
 - User mới join nhận lại toàn bộ bản vẽ (canvas snapshot)
 - Danh sách user online (hiển thị màu riêng mỗi user)
-- Chat trong phòng
+- Chat trong phòng (có feedback từ AI: số đối tượng đã vẽ / lỗi)
 
 ### AI Drawing (MCP)
 - Gõ lệnh bằng tiếng Việt hoặc tiếng Anh
@@ -542,6 +622,8 @@ Test-NetConnection -ComputerName 113.160.x.x -Port 5000
 | Ctrl+0 | Reset zoom |
 | Scroll wheel | Zoom in/out |
 | Chuột phải kéo | Pan canvas |
+| Chuột giữa kéo | Pan canvas (middle-button) |
+| Space + chuột trái kéo | Pan canvas (Figma-style) |
 
 ## Phân công nhóm (3 thành viên)
 

@@ -216,8 +216,16 @@ public class MainViewModel : ViewModelBase
 
             case MessageType.AiResult:
                 var aiResult = MessageEnvelope.DeserializePayload<AiResultPayload>(payload);
+                System.Diagnostics.Debug.WriteLine($"[Client] AiResult received: actions={aiResult?.Actions.Count ?? -1}  error={aiResult?.Error ?? "none"}");
                 if (aiResult != null)
                 {
+                    if (!string.IsNullOrEmpty(aiResult.Error))
+                        _events.Publish(new AppendChatEvent($"[AI] Lỗi: {aiResult.Error}", true));
+                    else if (aiResult.Actions.Count == 0)
+                        _events.Publish(new AppendChatEvent("[AI] Không sinh được hình vẽ.", true));
+                    else
+                        _events.Publish(new AppendChatEvent($"[AI] Đã vẽ {aiResult.Actions.Count} đối tượng.", false));
+
                     foreach (var action in aiResult.Actions)
                     {
                         Canvas.HandleRemoteAction(action);
