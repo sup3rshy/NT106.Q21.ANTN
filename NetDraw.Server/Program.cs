@@ -5,13 +5,19 @@ using NetDraw.Server.Pipeline;
 using NetDraw.Server.Services;
 
 int port = args.Length > 0 && int.TryParse(args[0], out var p) ? p : 5000;
-string mcpHost = "127.0.0.1";
-int mcpPort = 5001;
+
+// Claude API key: args[1] > env var
+string? apiKey = (args.Length > 1 ? args[1] : null)
+                 ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
+                 ?? Environment.GetEnvironmentVariable("CLAUDE_API_KEY");
+
+// Locate NetDraw.McpServer.csproj by walking up from the server binary directory.
+string? mcpProjectPath = ResolveMcpProjectPath();
 
 // Services
 var clientRegistry = new ClientRegistry();
 var roomService = new RoomService();
-var mcpClient = new McpClient(mcpHost, mcpPort);
+var mcpClient = new McpClient(apiKey, mcpProjectPath);
 var fallbackParser = new FallbackAiParser();
 
 // Start MCP connection in background
@@ -33,4 +39,18 @@ dispatcher.Register(new AiHandler(roomService, mcpClient, fallbackParser));
 // Start server
 var server = new DrawServer(port, dispatcher, clientRegistry, roomService);
 Console.WriteLine($"[NetDraw Server] Starting on port {port}...");
+Console.WriteLine($"[NetDraw Server] Claude API key: {(string.IsNullOrWhiteSpace(apiKey) ? "(none — fallback parser only)" : "present")}");
+Console.WriteLine($"[NetDraw Server] MCP project:    {mcpProjectPath ?? "(not found)"}");
 await server.StartAsync();
+
+static string? ResolveMcpProjectPath()
+{
+    // Search up from AppContext.BaseDirectory for NetDraw.McpServer/NetDraw.McpServer.csproj.
+    var dir = new DirectoryInfo(AppContext.BaseDirectory);
+    for (int i = 0; i < 8 && dir != null; i++, dir = dir.Parent)
+    {
+        var candidate = Path.Combine(dir.FullName, "NetDraw.McpServer", "NetDraw.McpServer.csproj");
+        if (File.Exists(candidate)) return Path.GetFullPath(candidate);
+    }
+    return null;
+}

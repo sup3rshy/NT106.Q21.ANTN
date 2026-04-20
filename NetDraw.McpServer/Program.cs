@@ -1,25 +1,22 @@
-using NetDraw.McpServer;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
-Console.Title = "NetDraw MCP Server";
+// Real Model Context Protocol server over stdio.
+// Exposes drawing primitives as MCP tools. Launched as a child process by
+// NetDraw.Server when a Claude API key is present.
+//
+// NOTE: stdout is reserved for MCP JSON-RPC frames. All logs MUST go to stderr.
 
-int port = 5001;
+var builder = Host.CreateApplicationBuilder(args);
 
-// Đọc port từ args
-if (args.Length > 0 && int.TryParse(args[0], out int customPort))
-    port = customPort;
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
+builder.Logging.SetMinimumLevel(LogLevel.Information);
 
-// Đọc API key từ biến môi trường hoặc args
-string? apiKey = Environment.GetEnvironmentVariable("CLAUDE_API_KEY");
-if (args.Length > 1)
-    apiKey = args[1];
+builder.Services
+    .AddMcpServer()
+    .WithStdioServerTransport()
+    .WithToolsFromAssembly();
 
-var mcpServer = new McpDrawServer(port, apiKey);
-
-Console.CancelKeyPress += (_, e) =>
-{
-    e.Cancel = true;
-    Console.WriteLine("\n[*] Shutting down MCP Server...");
-    mcpServer.Stop();
-};
-
-await mcpServer.StartAsync();
+await builder.Build().RunAsync();

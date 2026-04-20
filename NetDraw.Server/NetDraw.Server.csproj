@@ -1,11 +1,19 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\NetDraw.Shared\NetDraw.Shared.csproj" />
+    <!-- Build-order dependency only — we launch the MCP server as a child process and do not link its assemblies. -->
+    <ProjectReference Include="..\NetDraw.McpServer\NetDraw.McpServer.csproj">
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <Private>false</Private>
+    </ProjectReference>
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="ModelContextProtocol" Version="1.2.0" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="9.3.0-preview.1.25161.3" />
+    <PackageReference Include="Anthropic.SDK" Version="5.10.0" />
   </ItemGroup>
 
   <PropertyGroup>
