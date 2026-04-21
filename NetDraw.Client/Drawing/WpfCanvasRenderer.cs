@@ -267,14 +267,12 @@ public class WpfCanvasRenderer : ICanvasRenderer
         };
         if (shape == null) return null;
 
-        double left = action.X, top = action.Y;
-        if (action.ShapeType is ShapeType.Circle or ShapeType.Ellipse)
-        {
-            left = action.X - w / 2;
-            top = action.Y - h / 2;
-        }
-        Canvas.SetLeft(shape, left);
-        Canvas.SetTop(shape, top);
+        // X, Y = top-left of bounding box for ALL shape types (matches CanvasViewModel.UpdateDraw
+        // which stores Math.Min(start, end) as X/Y, matches Rect, and matches the DrawEllipse tool
+        // docstring "(x, y, width, height) bounding box"). Previously Circle/Ellipse subtracted
+        // w/2, h/2 here — that caused user-drawn circles AND MCP composites to shift up-left by r.
+        Canvas.SetLeft(shape, action.X);
+        Canvas.SetTop(shape, action.Y);
         return shape;
     }
 

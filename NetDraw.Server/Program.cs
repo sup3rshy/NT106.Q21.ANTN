@@ -17,7 +17,10 @@ string? mcpProjectPath = ResolveMcpProjectPath();
 // Services
 var clientRegistry = new ClientRegistry();
 var roomService = new RoomService();
-var mcpClient = new McpClient(apiKey, mcpProjectPath);
+// Canvas dimensions must match the client's DrawCanvas (MainWindow.xaml) — currently 3000×2000.
+// Claude uses these numbers to pick sensible (cx, cy, size) params; if they mismatch, every
+// drawing lands in the wrong place on the real canvas.
+var mcpClient = new McpClient(apiKey, mcpProjectPath, canvasWidth: 3000, canvasHeight: 2000);
 var fallbackParser = new FallbackAiParser();
 
 // Start MCP connection in background

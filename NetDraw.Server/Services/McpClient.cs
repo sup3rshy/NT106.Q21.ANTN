@@ -142,64 +142,88 @@ public class McpClient : IMcpClient, IAsyncDisposable
 
         string system =
 $@"You are an expert drawing assistant for a {_canvasWidth}×{_canvasHeight} collaborative canvas.
-Origin is (0,0) TOP-LEFT, +x right, +y down. All coordinates are pixels.
 
-━━━ HOW TO DRAW WELL ━━━
+━━━ RULE #0 — USE COMPOSITE PREFABS. DO NOT SUPPLEMENT THEM. ━━━
+For these subjects, a SINGLE composite call draws the entire subject, COMPLETE, in correct proportion:
+  • cat / kitten / mèo   → draw_cat_face (already includes head, ears, inner-ear pink, eyes, iris, pupils, highlights, nose, mouth, whiskers)
+  • manga/anime person   → draw_manga_face (includes silhouette, eyes, iris, pupils, highlights, eyelashes, brows, nose, mouth, hair strands, hair silhouette)
+  • dialogue bubble      → draw_speech_bubble (bubble + tail + optional text)
+  • tree                 → draw_tree (trunk + foliage)
+  • house                → draw_house (walls + roof + door + windows)
+  • sun                  → draw_sun (disk + rays)
 
-1. PLAN FIRST, THEN DRAW. Before any tool call, briefly decide:
-   • composition & scale (where does the subject sit? how large?)
-   • back-to-front order (sky/background → body → face → fine details → text)
-   • a small color palette (3–6 hex colors) and stick to it.
+HARD RULES:
+  1. If the request names ONE of these subjects, your FIRST and ONLY response must be that composite call. Do NOT follow it with draw_triangle/draw_circle/draw_line to ""add"" ears/eyes/whiskers — those parts are already drawn by the composite. Adding them duplicates + misaligns the drawing (this has failed before).
+  2. If you want a different expression/style, use the composite's parameters (mood, hairStyle, gender, furColor, …) — NEVER supplement with primitives.
+  3. The only time to mix composites with primitives is for a MULTI-subject scene (e.g. ""cat sitting in front of a house""), and even then use draw_many to batch.
+  4. No prose, no chain-of-thought tool calls — one decisive call per subject.
 
-2. PICK THE RIGHT TOOL for each stroke:
-   • Solid geometric fills  → DrawRectangle / DrawEllipse / DrawCircle / DrawTriangle / DrawStar (these support fillColor).
-   • Organic outlines       → DrawSmoothCurve (Catmull–Rom through 4–12 control points is the SHORTEST path to a cat/face/animal silhouette — just sketch the key points, the server smooths them).
-   • Precise curves         → DrawCubicBezier (S-curves, tails, hair strands), DrawQuadraticBezier (single-hump bends).
-   • Arcs                   → DrawArc / DrawEllipseArc for smiles, eyebrows, eyelids, closed eyes, claws, speech-bubble tails.
-   • Symmetric features     → DrawMirroredPath — one call draws BOTH halves of a face/wings/ears and groups them. Massive win for characters.
-   • Polygons / shields     → DrawPolygon (arbitrary), DrawRegularPolygon (hex, pentagon).
-   • Rounded panels         → DrawRoundedRectangle (outline) layered over a filled DrawRectangle.
-   • Straight strokes       → DrawLine (hasArrow for pointers, whiskers use thin DrawLine or DrawQuadraticBezier).
-   • Labels / SFX text      → DrawText (manga SFX: big bold, short strings, rotated in your mind since rotation isn't supported — pick placement instead).
+EXAMPLES:
+  • ""vẽ con mèo""                    → draw_cat_face(cx=500, cy=350, size=400)                       [1 call, done]
+  • ""vẽ con mèo buồn ngủ""           → draw_cat_face(cx=500, cy=350, size=400, mood=""sleepy"")       [1 call, done]
+  • ""vẽ cô gái anime tóc dài""      → draw_manga_face(cx=500, cy=350, size=450, hairStyle=""long"")  [1 call, done]
+  • ""vẽ mèo đứng trước nhà""         → draw_many([ draw_house(…), draw_cat_face(…) ])                [1 batch call]
+  • ""vẽ hình tròn đỏ""               → draw_circle(…)                                                 [primitive is correct here]
 
-3. LINE QUALITY for manga / anime style:
-   • penStyle=""Calligraphy"" gives a tapered, weight-varying stroke — use it for main outlines, hair, clothing folds.
-   • Vary strokeWidth: 3–5 for outer silhouette, 2 for internal features, 1 for fine details (eyelashes, whisker tips).
-   • Use opacity 0.3–0.5 + dashStyle=""Dotted"" for construction / shadow hatching.
+━━━ RULE #1 — BATCH WITH draw_many ━━━
+For any scene with ≥3 elements, use draw_many to submit the whole plan in ONE call.
+Each item is {{""tool"": ""<tool name>"", ""args"": {{...}}}}. You may reference composites inside draw_many.
+Example for a scene: draw_many([
+  {{""tool"": ""draw_rectangle"", ""args"": {{""x"":0,""y"":0,""width"":{_canvasWidth},""height"":{_canvasHeight / 2},""color"":""#87CEEB"",""fillColor"":""#87CEEB""}}}},  // sky
+  {{""tool"": ""draw_sun"", ""args"": {{""cx"":850,""cy"":120,""radius"":55}}}},
+  {{""tool"": ""draw_tree"", ""args"": {{""baseX"":200,""baseY"":600,""height"":220}}}},
+  {{""tool"": ""draw_house"", ""args"": {{""baseX"":520,""baseY"":600,""width"":260,""height"":220}}}},
+  {{""tool"": ""draw_cat_face"", ""args"": {{""cx"":380,""cy"":480,""size"":120,""mood"":""happy""}}}}
+])
 
-4. BATCH AGGRESSIVELY. Prefer DrawMany to send a whole scene in ONE call instead of 30 separate calls.
-   Format: each item is {{ ""tool"": ""DrawCircle"", ""args"": {{ ""cx"": 400, ""cy"": 300, ""radius"": 80, ""color"": ""#222"" }} }}.
-   Use individual calls only when you need to react to something (you almost never do here).
+━━━ RULE #2 — ANCHOR BEFORE YOU DRAW ━━━
+If you must hand-draw without a composite, FIRST pick an anchor point (cx, cy) for the subject
+and a size. Then express every feature as an offset from (cx, cy) in units of size. Never
+guess an absolute number.
 
-5. USE groupId to bundle strokes that belong together (one face, one speech bubble, one character) so the user can move/undo them as a unit. Same string across tool calls = same group.
+Canvas reference: origin (0,0) TOP-LEFT, +x right, +y down. Center is ({_canvasWidth / 2}, {_canvasHeight / 2}).
+For a single subject, typical head center = ({_canvasWidth / 2}, {_canvasHeight * 2 / 5}) with head size ~= {_canvasHeight / 3}px.
 
-6. CANVAS DISCIPLINE. Keep everything inside [0,{_canvasWidth}] × [0,{_canvasHeight}]. For a character portrait, center the head around ({_canvasWidth / 2},{_canvasHeight * 2 / 5}) with head radius ~{_canvasHeight / 6}.
+━━━ RULE #3 — NEVER use draw_path for curves ━━━
+draw_path makes a POLYLINE with straight segments. It looks jagged and wrong for anything organic.
+  • Smooth organic outline (body, tail, hair) → draw_smooth_curve (Catmull-Rom through control points)
+  • Single arc (smile, eyebrow, eyelid)       → draw_arc or draw_ellipse_arc
+  • S-curve (hair strand, flowing tail)        → draw_cubic_bezier
+  • Symmetric features (eyes/ears/wings)       → draw_mirrored_path
+Only use draw_path for genuinely angular shapes (zigzag, polygon you didn't want closed).
 
-━━━ EXAMPLE RECIPES ━━━
-
-• Cat face (front view, ~300px tall):
-  1 filled ellipse for head → 2 filled triangles for ears → 2 inner pink triangles → 2 filled ellipses for eyes (white) → 2 smaller ellipses for pupils → 1 small filled triangle for nose → DrawArc for mouth → DrawMirroredPath for the 3 whiskers on each side.
-
-• Manga character head:
-  DrawSmoothCurve (closed) for face silhouette through ~8 points → DrawSmoothCurve for hair clumps with Calligraphy penStyle → DrawMirroredPath for eyes (2 arcs + filled ellipse iris + small white highlight circle) → DrawEllipseArc for mouth → DrawMirroredPath for eyebrows.
-
-• Speech bubble:
-  DrawRoundedRectangle for the bubble → DrawPolygon for the tail → filled DrawRectangle (white) underneath for opacity → DrawText inside.
+━━━ RULE #4 — STYLE ━━━
+• Manga/anime look: penStyle=""Calligraphy"" on outlines/hair, strokeWidth 3–5 for silhouette, 2 for inner details, 1 for fine lines.
+• Back-to-front order: sky → background → subject body → subject face/details → text/speech.
+• Stick to a tight palette (3–6 hex codes). Composites already pick good defaults.
+• Opacity 0.3–0.5 + dashStyle=""Dotted"" for construction/shadow hatching.
+• Use groupId to bundle strokes of one entity (one face, one bubble, one house).
 
 ━━━ OUTPUT RULES ━━━
+Emit only tool calls. No prose, no apology, no summary. For ""draw a cat"", one call to draw_cat_face is
+enough — don't over-engineer. For ""draw a manga scene"", use draw_many with composite + scenery calls.
 
-Emit only tool calls. No prose, no apology, no summary. Errors in placement are fine — a drawing is never a single correct answer, just commit and move on.";
+Canvas: {_canvasWidth} wide × {_canvasHeight} tall. Origin top-left. +x right, +y down.";
+
+        // KEYWORD ROUTER — if the request is for a single known subject, expose ONLY
+        // the matching composite tool. Claude cannot call primitives that aren't in the
+        // tool list, so over-drawing (adding extra ears / eyes after the composite) is
+        // structurally impossible. This is the drawio-mcp insight: constrain the tool
+        // surface, don't rely on the prompt.
+        var (restrictedTools, routedHint) = RouteByKeyword(command, _tools);
 
         var messages = new List<ChatMessage>
         {
-            new(ChatRole.System, system),
+            new(ChatRole.System, system + routedHint),
             new(ChatRole.User, command)
         };
         var options = new ChatOptions
         {
             ModelId = Model,
             MaxOutputTokens = MaxTokens,
-            Tools = new List<AITool>(_tools)
+            Tools = new List<AITool>(restrictedTools),
+            // Force Claude to emit at least one tool call (no prose-only responses).
+            ToolMode = ChatToolMode.RequireAny
         };
 
         try
@@ -231,6 +255,59 @@ Emit only tool calls. No prose, no apology, no summary. Errors in placement are 
         }
     }
 
+    // ─── Keyword router ────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Subject keywords → the ONE composite tool that should be exposed. When a user
+    /// asks for a single known subject, we remove every other tool from Claude's
+    /// toolset so it cannot hand-draw duplicate parts. The order matters: longer /
+    /// more specific keywords first.
+    /// </summary>
+    private static readonly (string[] keywords, string toolName, string hint)[] Routes = new[]
+    {
+        (new[] { "anime girl", "manga girl", "anime boy", "manga character", "nhân vật manga", "cô gái anime", "chàng trai anime", "manga", "anime", "nhân vật" },
+         "draw_manga_face",
+         "The user asked for a single anime/manga character. Call draw_manga_face ONCE with sensible params. Nothing else."),
+
+        (new[] { "con mèo", "chú mèo", "kitten", " cat", "mèo" },
+         "draw_cat_face",
+         "The user asked for a cat. Your ONLY valid response is a single call to draw_cat_face with sensible cx/cy/size for the canvas center. No other tool calls are available."),
+
+        (new[] { "speech bubble", "lời thoại", "bong bóng" },
+         "draw_speech_bubble",
+         "The user asked for a speech bubble. Call draw_speech_bubble ONCE."),
+
+        (new[] { "ngôi nhà", "căn nhà", " nhà", "house" },
+         "draw_house",
+         "The user asked for a house. Call draw_house ONCE."),
+
+        (new[] { "cái cây", " cây", "tree" },
+         "draw_tree",
+         "The user asked for a tree. Call draw_tree ONCE."),
+
+        (new[] { "mặt trời", "sun" },
+         "draw_sun",
+         "The user asked for a sun. Call draw_sun ONCE."),
+    };
+
+    private static (IList<McpClientTool> tools, string hint) RouteByKeyword(string command, IList<McpClientTool> allTools)
+    {
+        string lc = " " + command.ToLowerInvariant() + " ";
+        foreach (var (kws, toolName, hint) in Routes)
+        {
+            if (!kws.Any(k => lc.Contains(k))) continue;
+            var picked = allTools.FirstOrDefault(t => string.Equals(t.Name, toolName, StringComparison.OrdinalIgnoreCase));
+            if (picked == null) continue;
+            // Multi-subject guard: if the request mentions several subjects ("mèo và nhà"),
+            // fall back to the full tool set with draw_many — keyword routing would hurt there.
+            int matchedSubjects = Routes.Count(r => r.keywords.Any(k => lc.Contains(k)));
+            if (matchedSubjects > 1) break;
+            Console.WriteLine($"[MCP]   routed → exposing only '{toolName}' (keyword match)");
+            return (new[] { picked }, "\n\n━━━ ROUTED ━━━\n" + hint);
+        }
+        return (allTools, string.Empty);
+    }
+
     // ─── Transcript extraction ─────────────────────────────────────────────────
 
     /// <summary>
@@ -240,10 +317,23 @@ Emit only tool calls. No prose, no apology, no summary. Errors in placement are 
     private static List<DrawActionBase> ExtractActions(ChatResponse response)
     {
         var list = new List<DrawActionBase>();
+        var toolCallCounts = new Dictionary<string, int>();
         foreach (var msg in response.Messages)
         {
             foreach (var content in msg.Contents)
             {
+                // Count which tools Claude actually invoked — composite prefabs vs raw primitives
+                if (content is FunctionCallContent fc)
+                {
+                    toolCallCounts.TryGetValue(fc.Name, out var c);
+                    toolCallCounts[fc.Name] = c + 1;
+                    // Trace args so we can tune composite defaults if Claude picks bad cx/cy/size
+                    if (fc.Arguments != null)
+                    {
+                        var argStr = string.Join(", ", fc.Arguments.Select(kv => $"{kv.Key}={kv.Value}"));
+                        Console.WriteLine($"[MCP]     {fc.Name}({argStr})");
+                    }
+                }
                 if (content is not FunctionResultContent fr) continue;
                 string? text = fr.Result switch
                 {
@@ -259,6 +349,11 @@ Emit only tool calls. No prose, no apology, no summary. Errors in placement are 
                     if (a != null) list.Add(a);
                 }
             }
+        }
+        if (toolCallCounts.Count > 0)
+        {
+            var summary = string.Join(", ", toolCallCounts.Select(kv => $"{kv.Key}×{kv.Value}"));
+            Console.WriteLine($"[MCP]   tools used: {summary}");
         }
         return list;
     }

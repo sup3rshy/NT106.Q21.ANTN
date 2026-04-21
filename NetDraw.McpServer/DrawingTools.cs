@@ -329,6 +329,397 @@ public static class DrawingTools
             FontSize = fontSize, IsBold = isBold, IsItalic = isItalic
         }, opacity, null, groupId));
 
+    // ─── Composite "prefab" scenes ─────────────────────────────────────────────
+    //
+    // These are opinionated, always-in-proportion templates. They return an ARRAY
+    // of pre-positioned primitives so Claude only has to pick a center + size
+    // instead of computing 10 relative offsets (which it does badly, producing
+    // floating ears / drifting eyes). Strongly prefer these for common subjects.
+
+    [McpServerTool, Description(
+        "TERMINAL — one call renders a COMPLETE cat face. Already draws: head, BOTH EARS " +
+        "(with pink inner ears), BOTH EYES (white + iris + pupil + highlight), nose, mouth, " +
+        "and 6 whiskers (3 per side). Nothing is missing. " +
+        "Do NOT call draw_triangle/draw_circle/draw_line after this — the cat is complete. " +
+        "For a different look, use the parameters (mood, furColor, eyeColor). " +
+        "Typical call: draw_cat_face(cx=canvas_center_x, cy=canvas_center_y*0.9, size=min(canvas)/2).")]
+    public static string DrawCatFace(
+        [Description("Face center X")] double cx,
+        [Description("Face center Y")] double cy,
+        [Description("Overall face diameter in pixels (typical: 200–400)")] double size,
+        [Description("Fur color #RRGGBB (default orange)")] string furColor = "#E8A85C",
+        [Description("Iris color #RRGGBB (default green)")] string eyeColor = "#4CAF50",
+        [Description("Mood: neutral|happy|sleepy|surprised|angry")] string mood = "neutral",
+        [Description("Optional group id (default auto)")] string? groupId = null)
+    {
+        string gid = groupId ?? Guid.NewGuid().ToString();
+        double r = size / 2;
+        var list = new List<DrawActionBase>();
+        string outline = "#2B1810";
+        string pink = "#F4A6B8";
+        double sw = Math.Max(2, size / 120);
+
+        // Head
+        list.Add(Stamp(Shape(ShapeType.Circle, cx - r, cy - r, size, size, outline, furColor, sw * 1.2), 1, null, gid));
+
+        // Ears — use polygons (triangles) positioned by hand for correct orientation
+        double earBaseL = cx - 0.75 * r, earBaseR = cx + 0.75 * r;
+        double earInnerL = cx - 0.35 * r, earInnerR = cx + 0.35 * r;
+        double earTopY = cy - r * 1.15, earBaseY = cy - r * 0.55;
+        list.Add(Pen(new[] { earBaseL, earBaseY, cx - 0.55 * r, earTopY, earInnerL, earBaseY - 5 }, outline, sw, true, gid));
+        list.Add(Pen(new[] { earBaseR, earBaseY, cx + 0.55 * r, earTopY, earInnerR, earBaseY - 5 }, outline, sw, true, gid));
+        // Inner pink ears (smaller, same shape)
+        list.Add(Pen(new[] { earBaseL + 0.06 * r, earBaseY - 0.05 * r, cx - 0.55 * r, earTopY + 0.2 * r, earInnerL - 0.06 * r, earBaseY - 0.08 * r }, pink, sw * 0.6, true, gid));
+        list.Add(Pen(new[] { earBaseR - 0.06 * r, earBaseY - 0.05 * r, cx + 0.55 * r, earTopY + 0.2 * r, earInnerR + 0.06 * r, earBaseY - 0.08 * r }, pink, sw * 0.6, true, gid));
+
+        // Eyes
+        double eyeDX = 0.33 * r, eyeY = cy - 0.08 * r;
+        double eyeW = 0.26 * r, eyeH = 0.32 * r;
+        bool closed = mood is "sleepy" or "happy";
+        bool big = mood is "surprised";
+        if (big) { eyeW *= 1.25; eyeH *= 1.25; }
+        if (!closed)
+        {
+            // whites
+            list.Add(Stamp(Shape(ShapeType.Ellipse, cx - eyeDX - eyeW / 2, eyeY - eyeH / 2, eyeW, eyeH, outline, "#FFFFFF", sw), 1, null, gid));
+            list.Add(Stamp(Shape(ShapeType.Ellipse, cx + eyeDX - eyeW / 2, eyeY - eyeH / 2, eyeW, eyeH, outline, "#FFFFFF", sw), 1, null, gid));
+            // iris
+            double irisW = eyeW * 0.7, irisH = eyeH * 0.85;
+            list.Add(Stamp(Shape(ShapeType.Ellipse, cx - eyeDX - irisW / 2, eyeY - irisH / 2, irisW, irisH, eyeColor, eyeColor, 1), 1, null, gid));
+            list.Add(Stamp(Shape(ShapeType.Ellipse, cx + eyeDX - irisW / 2, eyeY - irisH / 2, irisW, irisH, eyeColor, eyeColor, 1), 1, null, gid));
+            // pupil (vertical slit for cat)
+            double pupW = irisW * 0.2, pupH = irisH * 0.85;
+            list.Add(Stamp(Shape(ShapeType.Ellipse, cx - eyeDX - pupW / 2, eyeY - pupH / 2, pupW, pupH, "#000", "#000", 1), 1, null, gid));
+            list.Add(Stamp(Shape(ShapeType.Ellipse, cx + eyeDX - pupW / 2, eyeY - pupH / 2, pupW, pupH, "#000", "#000", 1), 1, null, gid));
+            // highlights
+            double hlR = eyeW * 0.1;
+            list.Add(Stamp(Shape(ShapeType.Circle, cx - eyeDX - hlR, eyeY - eyeH * 0.3 - hlR, hlR * 2, hlR * 2, "#FFF", "#FFF", 1), 1, null, gid));
+            list.Add(Stamp(Shape(ShapeType.Circle, cx + eyeDX - hlR, eyeY - eyeH * 0.3 - hlR, hlR * 2, hlR * 2, "#FFF", "#FFF", 1), 1, null, gid));
+        }
+        else
+        {
+            // closed/happy eyes: arcs
+            list.Add(Arc(cx - eyeDX, eyeY, eyeW / 2, 200, 340, outline, sw * 1.5, gid));
+            list.Add(Arc(cx + eyeDX, eyeY, eyeW / 2, 200, 340, outline, sw * 1.5, gid));
+        }
+
+        // Nose (small pink triangle, pointing down)
+        double noseY = cy + 0.12 * r, noseW = 0.13 * r, noseH = 0.1 * r;
+        list.Add(Pen(new[] { cx - noseW, noseY, cx + noseW, noseY, cx, noseY + noseH }, pink, sw, true, gid));
+
+        // Mouth: classic "3-on-its-side" — two small arcs under the nose
+        double mY = noseY + noseH + 2;
+        list.Add(Arc(cx - 0.08 * r, mY + 0.04 * r, 0.09 * r, 0, 180, outline, sw, gid));
+        list.Add(Arc(cx + 0.08 * r, mY + 0.04 * r, 0.09 * r, 0, 180, outline, sw, gid));
+        // Angry: flip mouth to a frown
+        if (mood == "angry")
+        {
+            list.RemoveRange(list.Count - 2, 2);
+            list.Add(Arc(cx, mY + 0.12 * r, 0.12 * r, 200, 340, outline, sw, gid));
+        }
+        // Surprised: small O mouth
+        if (mood == "surprised")
+        {
+            list.RemoveRange(list.Count - 2, 2);
+            list.Add(Stamp(Shape(ShapeType.Ellipse, cx - 0.05 * r, mY, 0.1 * r, 0.12 * r, outline, "#000", sw), 1, null, gid));
+        }
+
+        // Whiskers: 3 on each side, slight droop
+        double wBaseY = noseY - 0.02 * r;
+        for (int i = -1; i <= 1; i++)
+        {
+            double dy = i * 0.08 * r;
+            list.Add(new LineAction { StartX = cx - 0.25 * r, StartY = wBaseY + dy, EndX = cx - 0.85 * r, EndY = wBaseY + dy + i * 0.04 * r, Color = outline, StrokeWidth = sw * 0.8, Opacity = 1, GroupId = gid });
+            list.Add(new LineAction { StartX = cx + 0.25 * r, StartY = wBaseY + dy, EndX = cx + 0.85 * r, EndY = wBaseY + dy + i * 0.04 * r, Color = outline, StrokeWidth = sw * 0.8, Opacity = 1, GroupId = gid });
+        }
+
+        return JsonConvert.SerializeObject(list.ToArray(), JsonSettings);
+    }
+
+    [McpServerTool, Description(
+        "COMPOSITE — draws a manga/anime character head (front view): face silhouette, large " +
+        "manga eyes with highlights, nose dot, small mouth, hair strands. " +
+        "gender: female|male|neutral (affects hair & face shape). " +
+        "hairStyle: short|long|ponytail|spiky.")]
+    public static string DrawMangaFace(
+        double cx, double cy,
+        [Description("Head height in pixels (typical: 250–500)")] double size,
+        string hairColor = "#3B2418",
+        string eyeColor = "#5B8DEF",
+        string skinColor = "#FCE4D0",
+        string gender = "neutral",
+        string hairStyle = "short",
+        string? groupId = null)
+    {
+        string gid = groupId ?? Guid.NewGuid().ToString();
+        double h = size, w = size * 0.72; // head slightly narrower than tall
+        string lineCol = "#1A1A1A";
+        double sw = Math.Max(2, size / 140);
+        var list = new List<DrawActionBase>();
+
+        // Face silhouette — 8-point smooth closed curve (egg/heart-ish)
+        double hx = w / 2, hy = h / 2;
+        double[] face = new[]
+        {
+            cx,          cy - hy * 0.98,        // top
+            cx + hx*0.95, cy - hy * 0.55,
+            cx + hx,     cy - hy * 0.05,        // cheek
+            cx + hx*0.75, cy + hy * 0.45,       // jaw
+            cx + hx*0.35, cy + hy * 0.92,       // chin area
+            cx,          cy + hy * 1.0,         // chin
+            cx - hx*0.35, cy + hy * 0.92,
+            cx - hx*0.75, cy + hy * 0.45,
+            cx - hx,     cy - hy * 0.05,
+            cx - hx*0.95, cy - hy * 0.55,
+        };
+        var facePts = PointsFromFlat(face);
+        var smoothed = SampleCatmullRom(facePts, closed: true, segmentsPerSpan: 20);
+        // Fill via a filled ellipse underneath (approximation), then stroke the silhouette
+        list.Add(Stamp(Shape(ShapeType.Ellipse, cx - w / 2, cy - h / 2, w, h * 1.05, skinColor, skinColor, 1), 1, null, gid));
+        list.Add(Stamp(new PenAction { Points = smoothed, Color = lineCol, StrokeWidth = sw * 1.3, PenStyle = PenStyle.Calligraphy }, 1, null, gid));
+
+        // Eyes — large, lower third of face
+        double eyeY = cy + h * 0.05;
+        double eyeDX = w * 0.22;
+        double eyeW = w * 0.25, eyeH = h * 0.22;
+        for (int side = -1; side <= 1; side += 2)
+        {
+            double ex = cx + side * eyeDX;
+            // eye white (slightly rounded rect approximated by ellipse)
+            list.Add(Stamp(Shape(ShapeType.Ellipse, ex - eyeW / 2, eyeY - eyeH / 2, eyeW, eyeH, lineCol, "#FFFFFF", sw), 1, null, gid));
+            // iris (tall oval — manga style)
+            double irW = eyeW * 0.6, irH = eyeH * 1.05;
+            list.Add(Stamp(Shape(ShapeType.Ellipse, ex - irW / 2, eyeY - irH / 2, irW, irH, eyeColor, eyeColor, 1), 1, null, gid));
+            // pupil
+            double pW = irW * 0.35, pH = irH * 0.5;
+            list.Add(Stamp(Shape(ShapeType.Ellipse, ex - pW / 2, eyeY - pH / 2, pW, pH, "#000", "#000", 1), 1, null, gid));
+            // large highlight
+            double hl = eyeW * 0.16;
+            list.Add(Stamp(Shape(ShapeType.Circle, ex - hl - eyeW * 0.1, eyeY - eyeH * 0.3, hl * 2, hl * 2, "#FFF", "#FFF", 1), 1, null, gid));
+            // small highlight
+            double hl2 = eyeW * 0.07;
+            list.Add(Stamp(Shape(ShapeType.Circle, ex + eyeW * 0.08, eyeY + eyeH * 0.15, hl2 * 2, hl2 * 2, "#FFF", "#FFF", 1), 1, null, gid));
+            // eyelashes (top arc, thicker)
+            list.Add(Arc(ex, eyeY - eyeH * 0.35, eyeW * 0.55, 200, 340, lineCol, sw * 1.8, gid));
+        }
+
+        // Eyebrows
+        for (int side = -1; side <= 1; side += 2)
+        {
+            double bx = cx + side * eyeDX;
+            double by = eyeY - eyeH * 0.75;
+            list.Add(Arc(bx, by + 8, eyeW * 0.4, 200, 340, lineCol, sw * 1.3, gid));
+        }
+
+        // Nose (tiny line/dot below eyes)
+        list.Add(new LineAction { StartX = cx - 3, StartY = cy + h * 0.28, EndX = cx + 3, EndY = cy + h * 0.32, Color = lineCol, StrokeWidth = sw, Opacity = 1, GroupId = gid });
+
+        // Mouth (small curve)
+        list.Add(Arc(cx, cy + h * 0.45, w * 0.1, 10, 170, lineCol, sw, gid));
+
+        // Hair — several curved strands on top/sides (depends on style)
+        int strands = hairStyle == "long" ? 10 : hairStyle == "spiky" ? 8 : 6;
+        for (int i = 0; i < strands; i++)
+        {
+            double t = (i + 0.5) / strands;
+            double startX = cx + (t - 0.5) * w * 1.1;
+            double startY = cy - h * 0.6 + Math.Sin(t * Math.PI) * -h * 0.25;
+            double endY = cy - h * 0.1 + (hairStyle == "long" ? h * 0.6 : 0);
+            if (hairStyle == "spiky") endY = cy - h * 0.35;
+            double ctrlX = startX + (t < 0.5 ? -w * 0.15 : w * 0.15);
+            double ctrlY = startY + h * 0.1;
+            var pts = SampleQuadBezier(startX, startY, ctrlX, ctrlY, startX + (t < 0.5 ? -w * 0.05 : w * 0.05), endY, 20);
+            list.Add(Stamp(new PenAction { Points = pts, Color = hairColor, StrokeWidth = sw * 2.0, PenStyle = PenStyle.Calligraphy }, 1, null, gid));
+        }
+        // Hair silhouette on top (rough cloud)
+        double[] hair = new[]
+        {
+            cx - w * 0.55, cy - h * 0.35,
+            cx - w * 0.5,  cy - h * 0.7,
+            cx - w * 0.2,  cy - h * 0.95,
+            cx + w * 0.15, cy - h * 1.0,
+            cx + w * 0.45, cy - h * 0.8,
+            cx + w * 0.55, cy - h * 0.4,
+        };
+        var hairPts = PointsFromFlat(hair);
+        var hairSmooth = SampleCatmullRom(hairPts, closed: false, segmentsPerSpan: 18);
+        list.Add(Stamp(new PenAction { Points = hairSmooth, Color = hairColor, StrokeWidth = sw * 2.5, PenStyle = PenStyle.Calligraphy }, 1, null, gid));
+
+        return JsonConvert.SerializeObject(list.ToArray(), JsonSettings);
+    }
+
+    [McpServerTool, Description(
+        "COMPOSITE — draws a speech bubble with a tail pointing at (tailTargetX, tailTargetY) " +
+        "and optional text inside. The bubble body is a rounded rectangle centered at (cx,cy).")]
+    public static string DrawSpeechBubble(
+        double cx, double cy, double width, double height,
+        double tailTargetX, double tailTargetY,
+        string? text = null,
+        string fillColor = "#FFFFFF",
+        string strokeColor = "#000000",
+        double fontSize = 18,
+        string? groupId = null)
+    {
+        string gid = groupId ?? Guid.NewGuid().ToString();
+        var list = new List<DrawActionBase>();
+        double sw = 2.5;
+        double x = cx - width / 2, y = cy - height / 2;
+        double r = Math.Min(width, height) * 0.2;
+
+        // White fill (rectangle with rounded feel — use ellipse layered on rect corners)
+        list.Add(Stamp(Shape(ShapeType.Rect, x + r, y, width - 2 * r, height, fillColor, fillColor, 1), 1, null, gid));
+        list.Add(Stamp(Shape(ShapeType.Rect, x, y + r, width, height - 2 * r, fillColor, fillColor, 1), 1, null, gid));
+        list.Add(Stamp(Shape(ShapeType.Circle, x, y, 2 * r, 2 * r, fillColor, fillColor, 1), 1, null, gid));
+        list.Add(Stamp(Shape(ShapeType.Circle, x + width - 2 * r, y, 2 * r, 2 * r, fillColor, fillColor, 1), 1, null, gid));
+        list.Add(Stamp(Shape(ShapeType.Circle, x, y + height - 2 * r, 2 * r, 2 * r, fillColor, fillColor, 1), 1, null, gid));
+        list.Add(Stamp(Shape(ShapeType.Circle, x + width - 2 * r, y + height - 2 * r, 2 * r, 2 * r, fillColor, fillColor, 1), 1, null, gid));
+
+        // Outline via rounded rect
+        var outlinePts = new List<PointData>();
+        outlinePts.Add(new PointData(x + r, y));
+        outlinePts.Add(new PointData(x + width - r, y));
+        outlinePts.AddRange(SampleEllipseArc(x + width - r, y + r, r, r, Deg2Rad(-90), Deg2Rad(0), 0, 10));
+        outlinePts.Add(new PointData(x + width, y + height - r));
+        outlinePts.AddRange(SampleEllipseArc(x + width - r, y + height - r, r, r, Deg2Rad(0), Deg2Rad(90), 0, 10));
+        outlinePts.Add(new PointData(x + r, y + height));
+        outlinePts.AddRange(SampleEllipseArc(x + r, y + height - r, r, r, Deg2Rad(90), Deg2Rad(180), 0, 10));
+        outlinePts.Add(new PointData(x, y + r));
+        outlinePts.AddRange(SampleEllipseArc(x + r, y + r, r, r, Deg2Rad(180), Deg2Rad(270), 0, 10));
+        outlinePts.Add(new PointData(x + r, y));
+        list.Add(Stamp(new PenAction { Points = outlinePts, Color = strokeColor, StrokeWidth = sw }, 1, null, gid));
+
+        // Tail — small triangle pointing at target
+        double tx = Math.Clamp(tailTargetX, x - width, x + 2 * width);
+        double ty = tailTargetY;
+        // Tail base on nearest bubble edge, perpendicular direction determines base points
+        double baseX = Math.Clamp(tx, x + r, x + width - r);
+        bool below = ty > cy;
+        double baseY = below ? y + height : y;
+        double baseHalf = width * 0.1;
+        list.Add(Pen(new[] { baseX - baseHalf, baseY, tx, ty, baseX + baseHalf, baseY }, fillColor, 1, true, gid)); // fill poly approx
+        list.Add(new LineAction { StartX = baseX - baseHalf, StartY = baseY, EndX = tx, EndY = ty, Color = strokeColor, StrokeWidth = sw, Opacity = 1, GroupId = gid });
+        list.Add(new LineAction { StartX = tx, StartY = ty, EndX = baseX + baseHalf, EndY = baseY, Color = strokeColor, StrokeWidth = sw, Opacity = 1, GroupId = gid });
+
+        // Text (centered — Claude should pass short strings)
+        if (!string.IsNullOrEmpty(text))
+        {
+            double charW = fontSize * 0.55;
+            double tw = text.Length * charW;
+            list.Add(new TextAction
+            {
+                X = cx - tw / 2, Y = cy - fontSize / 2,
+                Text = text, Color = strokeColor, FontSize = fontSize, GroupId = gid
+            });
+        }
+        return JsonConvert.SerializeObject(list.ToArray(), JsonSettings);
+    }
+
+    [McpServerTool, Description(
+        "COMPOSITE — draws a simple tree (trunk + foliage blob) centered at base point (baseX, baseY). " +
+        "type: round|pine|bush.")]
+    public static string DrawTree(
+        double baseX, double baseY, double height,
+        string type = "round",
+        string trunkColor = "#6B3F1D",
+        string leafColor = "#3E8E3E",
+        string? groupId = null)
+    {
+        string gid = groupId ?? Guid.NewGuid().ToString();
+        var list = new List<DrawActionBase>();
+        double trunkW = height * 0.12, trunkH = height * 0.35;
+        list.Add(Stamp(Shape(ShapeType.Rect, baseX - trunkW / 2, baseY - trunkH, trunkW, trunkH, trunkColor, trunkColor, 2), 1, null, gid));
+        double fY = baseY - trunkH;
+        double fH = height - trunkH;
+        if (type == "pine")
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                double t = 1 - i / 3.0;
+                double w = height * 0.8 * t;
+                double yTop = fY - fH * (i + 1) / 3.0;
+                list.Add(Pen(new[] { baseX - w / 2, yTop + fH / 3, baseX, yTop, baseX + w / 2, yTop + fH / 3 }, leafColor, 2, true, gid));
+            }
+        }
+        else if (type == "bush")
+        {
+            list.Add(Stamp(Shape(ShapeType.Ellipse, baseX - height * 0.45, fY - fH * 0.9, height * 0.9, fH, leafColor, leafColor, 2), 1, null, gid));
+        }
+        else // round
+        {
+            double r = height * 0.4;
+            list.Add(Stamp(Shape(ShapeType.Circle, baseX - r, fY - r * 1.4, r * 2, r * 2, leafColor, leafColor, 2), 1, null, gid));
+            list.Add(Stamp(Shape(ShapeType.Circle, baseX - r * 1.1, fY - r * 0.8, r * 1.5, r * 1.5, leafColor, leafColor, 2), 1, null, gid));
+            list.Add(Stamp(Shape(ShapeType.Circle, baseX + r * 0.2, fY - r * 0.9, r * 1.5, r * 1.5, leafColor, leafColor, 2), 1, null, gid));
+        }
+        return JsonConvert.SerializeObject(list.ToArray(), JsonSettings);
+    }
+
+    [McpServerTool, Description(
+        "COMPOSITE — draws a simple house: body + roof + door + 1-2 windows. " +
+        "Centered at base point (baseX is house center, baseY is ground line).")]
+    public static string DrawHouse(
+        double baseX, double baseY, double width, double height,
+        string wallColor = "#F4E4B8",
+        string roofColor = "#A0524D",
+        string doorColor = "#6B3F1D",
+        string? groupId = null)
+    {
+        string gid = groupId ?? Guid.NewGuid().ToString();
+        var list = new List<DrawActionBase>();
+        double wallH = height * 0.65;
+        list.Add(Stamp(Shape(ShapeType.Rect, baseX - width / 2, baseY - wallH, width, wallH, "#222", wallColor, 2), 1, null, gid));
+        // Roof (triangle)
+        list.Add(Pen(new[] {
+            baseX - width / 2 - width * 0.05, baseY - wallH,
+            baseX, baseY - height,
+            baseX + width / 2 + width * 0.05, baseY - wallH
+        }, roofColor, 2, true, gid));
+        // Door
+        double dw = width * 0.2, dh = wallH * 0.5;
+        list.Add(Stamp(Shape(ShapeType.Rect, baseX - dw / 2, baseY - dh, dw, dh, "#222", doorColor, 2), 1, null, gid));
+        // Windows
+        double ww = width * 0.18;
+        list.Add(Stamp(Shape(ShapeType.Rect, baseX - width * 0.35, baseY - wallH * 0.75, ww, ww, "#222", "#B8DCF4", 2), 1, null, gid));
+        list.Add(Stamp(Shape(ShapeType.Rect, baseX + width * 0.17, baseY - wallH * 0.75, ww, ww, "#222", "#B8DCF4", 2), 1, null, gid));
+        return JsonConvert.SerializeObject(list.ToArray(), JsonSettings);
+    }
+
+    [McpServerTool, Description("COMPOSITE — draws a sun (filled circle + N rays). Great for skies.")]
+    public static string DrawSun(
+        double cx, double cy, double radius,
+        string color = "#FFC83D",
+        int rays = 8,
+        string? groupId = null)
+    {
+        string gid = groupId ?? Guid.NewGuid().ToString();
+        var list = new List<DrawActionBase>();
+        list.Add(Stamp(Shape(ShapeType.Circle, cx - radius, cy - radius, radius * 2, radius * 2, color, color, 3), 1, null, gid));
+        for (int i = 0; i < rays; i++)
+        {
+            double a = i * 2 * Math.PI / rays;
+            double x1 = cx + Math.Cos(a) * radius * 1.2, y1 = cy + Math.Sin(a) * radius * 1.2;
+            double x2 = cx + Math.Cos(a) * radius * 1.8, y2 = cy + Math.Sin(a) * radius * 1.8;
+            list.Add(new LineAction { StartX = x1, StartY = y1, EndX = x2, EndY = y2, Color = color, StrokeWidth = 4, Opacity = 1, GroupId = gid });
+        }
+        return JsonConvert.SerializeObject(list.ToArray(), JsonSettings);
+    }
+
+    // Internal pen helper used by composites
+    private static PenAction Pen(double[] coords, string color, double strokeWidth, bool closed, string gid)
+    {
+        var pts = PointsFromFlat(coords);
+        if (closed) pts.Add(new PointData(pts[0].X, pts[0].Y));
+        var a = new PenAction { Points = pts, Color = color, StrokeWidth = strokeWidth, GroupId = gid };
+        return a;
+    }
+
+    private static PenAction Arc(double cx, double cy, double radius, double startDeg, double endDeg, string color, double strokeWidth, string gid)
+    {
+        var pts = SampleEllipseArc(cx, cy, radius, radius, Deg2Rad(startDeg), Deg2Rad(endDeg), 0,
+            Math.Max(12, (int)(Math.Abs(endDeg - startDeg) / 6)));
+        return new PenAction { Points = pts, Color = color, StrokeWidth = strokeWidth, GroupId = gid };
+    }
+
     // ─── Batch ─────────────────────────────────────────────────────────────────
 
     [McpServerTool, Description(
