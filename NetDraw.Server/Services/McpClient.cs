@@ -144,13 +144,30 @@ public class McpClient : IMcpClient, IAsyncDisposable
 $@"You are an expert drawing assistant for a {_canvasWidth}×{_canvasHeight} collaborative canvas.
 
 ━━━ RULE #0 — USE COMPOSITE PREFABS. DO NOT SUPPLEMENT THEM. ━━━
-For these subjects, a SINGLE composite call draws the entire subject, COMPLETE, in correct proportion:
-  • cat / kitten / mèo   → draw_cat_face (already includes head, ears, inner-ear pink, eyes, iris, pupils, highlights, nose, mouth, whiskers)
-  • manga/anime person   → draw_manga_face (includes silhouette, eyes, iris, pupils, highlights, eyelashes, brows, nose, mouth, hair strands, hair silhouette)
-  • dialogue bubble      → draw_speech_bubble (bubble + tail + optional text)
-  • tree                 → draw_tree (trunk + foliage)
-  • house                → draw_house (walls + roof + door + windows)
-  • sun                  → draw_sun (disk + rays)
+For these subjects, a SINGLE composite call draws the entire subject, COMPLETE, in correct proportion.
+Characters / animals (front-view face / silhouette):
+  • cat / mèo            → draw_cat_face       (head, ears, eyes, nose, mouth, whiskers — done)
+  • dog / chó            → draw_dog_face       (head, ears, eyes, snout, nose, mouth)
+  • manga/anime person   → draw_manga_face     (silhouette, eyes, hair, mouth — done)
+  • stick person / người → draw_stick_person   (head + body + arms + legs, pose param)
+  • bird / chim          → draw_bird           (body + wing + tail + beak + eye)
+  • fish / cá            → draw_fish           (body + fins + eye)
+  • butterfly / bướm     → draw_butterfly      (4 wings + body + antennae)
+Scenery:
+  • tree / cây           → draw_tree
+  • house / nhà          → draw_house
+  • sun / mặt trời       → draw_sun
+  • mountain / núi       → draw_mountain       (peaks=N for a range)
+  • cloud / mây          → draw_cloud
+  • moon / trăng         → draw_moon           (phase: full|gibbous|half|crescent)
+Icons / stickers (filled, single-call):
+  • heart / tim          → draw_heart
+  • flower / hoa         → draw_flower
+  • leaf / lá            → draw_leaf
+  • lightning / chớp     → draw_lightning
+  • raindrop / giọt mưa  → draw_raindrop
+  • arrow                → draw_filled_arrow
+  • speech bubble        → draw_speech_bubble  (with optional text)
 
 HARD RULES:
   1. If the request names ONE of these subjects, your FIRST and ONLY response must be that composite call. Do NOT follow it with draw_triangle/draw_circle/draw_line to ""add"" ears/eyes/whiskers — those parts are already drawn by the composite. Adding them duplicates + misaligns the drawing (this has failed before).
@@ -184,12 +201,16 @@ guess an absolute number.
 Canvas reference: origin (0,0) TOP-LEFT, +x right, +y down. Center is ({_canvasWidth / 2}, {_canvasHeight / 2}).
 For a single subject, typical head center = ({_canvasWidth / 2}, {_canvasHeight * 2 / 5}) with head size ~= {_canvasHeight / 3}px.
 
-━━━ RULE #3 — NEVER use draw_path for curves ━━━
-draw_path makes a POLYLINE with straight segments. It looks jagged and wrong for anything organic.
-  • Smooth organic outline (body, tail, hair) → draw_smooth_curve (Catmull-Rom through control points)
-  • Single arc (smile, eyebrow, eyelid)       → draw_arc or draw_ellipse_arc
+━━━ RULE #3 — PICK THE RIGHT CURVE/FILL TOOL ━━━
+draw_path makes a POLYLINE with straight segments — looks jagged for organic shapes.
+  • Smooth organic outline (body, tail, hair) → draw_smooth_curve  (Catmull-Rom through control points)
+  • Single arc (smile, eyebrow, eyelid)       → draw_arc / draw_ellipse_arc
   • S-curve (hair strand, flowing tail)        → draw_cubic_bezier
   • Symmetric features (eyes/ears/wings)       → draw_mirrored_path
+  • FILLED arbitrary polygon (custom blob)     → draw_filled_polygon
+  • FILLED smooth blob (organic body)          → draw_filled_smooth_shape
+  • Need to rotate/scale a sub-scene           → draw_transformed (wraps a batch with affine transform)
+  • Need a coordinated palette                 → make_palette (returns 5 hex codes)
 Only use draw_path for genuinely angular shapes (zigzag, polygon you didn't want closed).
 
 ━━━ RULE #4 — STYLE ━━━
@@ -272,6 +293,62 @@ Canvas: {_canvasWidth} wide × {_canvasHeight} tall. Origin top-left. +x right, 
         (new[] { "con mèo", "chú mèo", "kitten", " cat", "mèo" },
          "draw_cat_face",
          "The user asked for a cat. Your ONLY valid response is a single call to draw_cat_face with sensible cx/cy/size for the canvas center. No other tool calls are available."),
+
+        (new[] { "con chó", "chú chó", "puppy", " dog", "chó" },
+         "draw_dog_face",
+         "The user asked for a dog. Call draw_dog_face ONCE with sensible cx/cy/size. Nothing else."),
+
+        (new[] { "con chim", "chim chóc", " bird", "chim" },
+         "draw_bird",
+         "The user asked for a bird. Call draw_bird ONCE."),
+
+        (new[] { "con cá", " fish", " cá" },
+         "draw_fish",
+         "The user asked for a fish. Call draw_fish ONCE."),
+
+        (new[] { "con bướm", "butterfly", "bướm" },
+         "draw_butterfly",
+         "The user asked for a butterfly. Call draw_butterfly ONCE."),
+
+        (new[] { "ô tô", "xe hơi", "chiếc xe", " car", " xe" },
+         "draw_car",
+         "The user asked for a car. Call draw_car ONCE."),
+
+        (new[] { "ngọn núi", "dãy núi", "mountain", "núi" },
+         "draw_mountain",
+         "The user asked for a mountain. Call draw_mountain ONCE (use peaks=2 or 3 for a range)."),
+
+        (new[] { "trái tim", "quả tim", " heart", "tim" },
+         "draw_heart",
+         "The user asked for a heart. Call draw_heart ONCE."),
+
+        (new[] { "bông hoa", "đóa hoa", "flower", " hoa" },
+         "draw_flower",
+         "The user asked for a flower. Call draw_flower ONCE."),
+
+        (new[] { "đám mây", " cloud", "mây" },
+         "draw_cloud",
+         "The user asked for a cloud. Call draw_cloud ONCE."),
+
+        (new[] { "mặt trăng", "trăng lưỡi liềm", "moon", "trăng" },
+         "draw_moon",
+         "The user asked for a moon. Call draw_moon ONCE (default phase=crescent)."),
+
+        (new[] { "tia chớp", "tia sét", "lightning", "sét", "chớp" },
+         "draw_lightning",
+         "The user asked for a lightning bolt. Call draw_lightning ONCE."),
+
+        (new[] { "chiếc lá", "lá cây", " leaf", " lá " },
+         "draw_leaf",
+         "The user asked for a leaf. Call draw_leaf ONCE."),
+
+        (new[] { "giọt nước", "giọt mưa", "raindrop", "teardrop" },
+         "draw_raindrop",
+         "The user asked for a raindrop. Call draw_raindrop ONCE."),
+
+        (new[] { "que diêm", "stick figure", "stick person", "người que" },
+         "draw_stick_person",
+         "The user asked for a stick person. Call draw_stick_person ONCE."),
 
         (new[] { "speech bubble", "lời thoại", "bong bóng" },
          "draw_speech_bubble",

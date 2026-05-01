@@ -28,7 +28,7 @@ namespace NetDraw.McpServer;
 /// "#RRGGBB". Angles are in degrees, 0° = +x (right), 90° = +y (down).
 /// </summary>
 [McpServerToolType]
-public static class DrawingTools
+public static partial class DrawingTools
 {
     private static readonly JsonSerializerSettings JsonSettings = new()
     {
