@@ -85,8 +85,12 @@ public class ClientHandler
                 int payloadLength = (_buffer[pos + 3] << 16) | (_buffer[pos + 4] << 8) | _buffer[pos + 5];
                 if (payloadLength > MessageEnvelope.MaxBinaryPayloadLength)
                 {
+                    // Framer-level fatal: the receiver has no way to know whether the next
+                    // 16M+ bytes are a real (oversize) frame or junk after a desync, so
+                    // closing the connection is the only safe option (per the design doc's
+                    // "framer can't reliably re-sync inside what we hoped was binary").
                     await SendBinaryFatalErrorAsync(
-                        ErrorCodes.BinaryNotImplemented,
+                        ErrorCodes.BinaryBadMagic,
                         $"binary frame length {payloadLength} exceeds {MessageEnvelope.MaxBinaryPayloadLength}-byte cap");
                     _isConnected = false;
                     return;

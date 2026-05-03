@@ -36,8 +36,7 @@ public class ClientHandlerFramerTests
             var env = await firstMsg.Task.WaitAsync(TimeSpan.FromSeconds(2));
             Assert.Equal(MessageType.ChatMessage, env.Type);
             Assert.Equal("u1", env.SenderId);
-            Assert.Null(env.RawBinary.IsEmpty ? null : (object?)env.RawBinary); // JSON path leaves RawBinary empty
-            Assert.Equal(0, env.RawBinary.Length);
+            Assert.True(env.RawBinary.IsEmpty); // JSON path leaves the binary buffer untouched.
         }
         finally { Cleanup(peerStream, listener); }
     }
@@ -106,6 +105,51 @@ public class ClientHandlerFramerTests
             Assert.Contains("\"code\":\"" + ErrorCodes.BinaryBadMagic + "\"", text);
 
             // After the Error reply the server closes the connection; ListenAsync should exit.
+            var done = await Task.WhenAny(listenTask, Task.Delay(2000));
+            Assert.Same(listenTask, done);
+        }
+        finally { Cleanup(peerStream, listener); }
+    }
+
+    [Fact(Timeout = 5000)]
+    public async Task Closes_On_Length_Cap_Overrun()
+    {
+        // The framer reads payload-length out of the buffer directly (before ParseBinary
+        // ever sees the body) so the cap-enforcement path is distinct from ParseBinary's
+        // null-on-cap branch. Send only the 6-byte header with an oversize length and
+        // assert the JSON Error + EOF.
+        var (handler, peerStream, listener) = await CreateConnectedHandlerAsync();
+        try
+        {
+            var listenTask = Task.Run(handler.ListenAsync);
+
+            const int oversize = 16_000_001;
+            var header = new byte[6];
+            header[0] = MessageEnvelope.BinaryMagic;
+            header[1] = MessageEnvelope.BinaryVersion;
+            header[2] = (byte)MessageType.Draw;
+            header[3] = (byte)((oversize >> 16) & 0xFF);
+            header[4] = (byte)((oversize >> 8)  & 0xFF);
+            header[5] = (byte)( oversize        & 0xFF);
+            await peerStream.WriteAsync(header);
+            await peerStream.FlushAsync();
+
+            var sb = new StringBuilder();
+            var buf = new byte[4096];
+            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
+            {
+                while (!cts.IsCancellationRequested)
+                {
+                    int n;
+                    try { n = await peerStream.ReadAsync(buf, cts.Token); }
+                    catch (OperationCanceledException) { break; }
+                    if (n == 0) break;
+                    sb.Append(Encoding.UTF8.GetString(buf, 0, n));
+                    if (sb.ToString().Contains('\n')) break;
+                }
+            }
+            Assert.Contains("\"code\":\"" + ErrorCodes.BinaryBadMagic + "\"", sb.ToString());
+
             var done = await Task.WhenAny(listenTask, Task.Delay(2000));
             Assert.Same(listenTask, done);
         }
