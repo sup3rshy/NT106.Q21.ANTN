@@ -30,37 +30,41 @@ public class JoinRoomIntegrationTests
         int port = server.BoundPort;
         var serverTask = Task.Run(server.StartAsync);
 
-        using var tcp = new TcpClient();
-        await ConnectWithRetryAsync(tcp, port, TimeSpan.FromSeconds(2));
-        using var stream = tcp.GetStream();
+        try
+        {
+            using var tcp = new TcpClient();
+            await ConnectWithRetryAsync(tcp, port, TimeSpan.FromSeconds(2));
+            using var stream = tcp.GetStream();
 
-        const string roomId = "room-int-1";
-        const string userId = "user-1";
-        const string userName = "Alice";
+            const string roomId = "room-int-1";
+            const string userId = "user-1";
+            const string userName = "Alice";
 
-        var joinMsg = NetMessage<UserPayload>.Create(
-            MessageType.JoinRoom, userId, userName, roomId,
-            new UserPayload { User = new UserInfo { UserId = userId, UserName = userName } });
+            var joinMsg = NetMessage<UserPayload>.Create(
+                MessageType.JoinRoom, userId, userName, roomId,
+                new UserPayload { User = new UserInfo { UserId = userId, UserName = userName } });
 
-        byte[] outBytes = Encoding.UTF8.GetBytes(joinMsg.Serialize());
-        await stream.WriteAsync(outBytes);
-        await stream.FlushAsync();
+            byte[] outBytes = Encoding.UTF8.GetBytes(joinMsg.Serialize());
+            await stream.WriteAsync(outBytes);
+            await stream.FlushAsync();
 
-        string responseLine = await ReadLineAsync(stream, TimeSpan.FromSeconds(3));
-        var envelope = MessageEnvelope.Parse(responseLine);
-        Assert.NotNull(envelope);
-        Assert.Equal(MessageType.RoomJoined, envelope!.Type);
-        Assert.Equal(roomId, envelope.RoomId);
+            string responseLine = await ReadLineAsync(stream, TimeSpan.FromSeconds(3));
+            var envelope = MessageEnvelope.Parse(responseLine);
+            Assert.NotNull(envelope);
+            Assert.Equal(MessageType.RoomJoined, envelope!.Type);
+            Assert.Equal(roomId, envelope.RoomId);
 
-        var payload = MessageEnvelope.DeserializePayload<RoomJoinedPayload>(envelope.RawPayload);
-        Assert.NotNull(payload);
-        Assert.Equal(roomId, payload!.Room.RoomId);
-        Assert.Contains(payload.Users, u => u.UserId == userId && u.UserName == userName);
+            var payload = MessageEnvelope.DeserializePayload<RoomJoinedPayload>(envelope.RawPayload);
+            Assert.NotNull(payload);
+            Assert.Equal(roomId, payload!.Room.RoomId);
+            Assert.Contains(payload.Users, u => u.UserId == userId && u.UserName == userName);
 
-        tcp.Close();
-        // serverTask runs an infinite accept-loop; xunit tears down the process at suite exit.
-        // Awaiting it would deadlock the test, so we leave it as a fire-and-forget.
-        _ = serverTask;
+            tcp.Close();
+        }
+        finally
+        {
+            await server.StopAsync();
+        }
     }
 
     private static async Task ConnectWithRetryAsync(TcpClient client, int port, TimeSpan timeout)
