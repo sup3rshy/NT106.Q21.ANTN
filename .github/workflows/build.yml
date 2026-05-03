@@ -13,9 +13,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # SDK 10 is required to parse NetDraw.slnx; SDK 8 fails with MSB4068.
+      # Project TFMs stay on net8.0 — the SDK is only the build driver.
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -27,7 +29,7 @@ jobs:
       - run: dotnet --info
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore NetDraw.slnx
 
       - name: Build
-        run: dotnet build --no-restore --configuration Release
+        run: dotnet build NetDraw.slnx --no-restore --configuration Release
