@@ -15,10 +15,17 @@ string? apiKey = (args.Length > 1 ? args[1] : null)
 // Locate NetDraw.McpServer.csproj by walking up from the server binary directory.
 string? mcpProjectPath = ResolveMcpProjectPath();
 
-// Logging — read level from LOG_LEVEL env var (default Information).
-var minLevel = Enum.TryParse<LogLevel>(Environment.GetEnvironmentVariable("LOG_LEVEL"), true, out var lvl)
-    ? lvl
-    : LogLevel.Information;
+// LOG_LEVEL must be a named LogLevel (e.g. "Warning"). Numeric strings parse but produce unmapped
+// values that silently disable all logging.
+var rawLevel = Environment.GetEnvironmentVariable("LOG_LEVEL");
+LogLevel minLevel = LogLevel.Information;
+if (!string.IsNullOrWhiteSpace(rawLevel))
+{
+    if (Enum.TryParse<LogLevel>(rawLevel, ignoreCase: true, out var lvl) && Enum.IsDefined(typeof(LogLevel), lvl))
+        minLevel = lvl;
+    else
+        Console.Error.WriteLine($"[Startup] LOG_LEVEL={LogHelper.SanitizeForLog(rawLevel, 40)} is not a valid LogLevel name; defaulting to Information.");
+}
 
 using var loggerFactory = LoggerFactory.Create(builder =>
 {

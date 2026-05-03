@@ -53,9 +53,13 @@ public class ClientHandler
                 await ProcessBufferAsync();
             }
         }
+        catch (Exception ex) when (ex is IOException or System.Net.Sockets.SocketException or ObjectDisposedException)
+        {
+            _logger.LogInformation("Client {UserId} disconnected: {Reason}", UserId, ex.Message);
+        }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Client {UserId} read loop ended with error", UserId);
+            _logger.LogWarning(ex, "Client {UserId} read loop ended with unexpected error", UserId);
         }
         finally
         {

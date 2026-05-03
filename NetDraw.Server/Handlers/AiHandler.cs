@@ -40,8 +40,10 @@ public class AiHandler : IMessageHandler
     private async Task ProcessInBackgroundAsync(string prompt, string senderId, string roomId)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        _logger.LogInformation("AI prompt from {SenderId} in {RoomId}: {Prompt} (mcp={McpStatus})",
-            senderId, roomId, prompt, _mcpClient.IsConnected ? "connected" : "offline");
+        _logger.LogInformation("AI prompt from {SenderId} in {RoomId} ({PromptLength} chars, mcp={McpStatus})",
+            senderId, roomId, prompt.Length, _mcpClient.IsConnected ? "connected" : "offline");
+        if (_logger.IsEnabled(LogLevel.Debug))
+            _logger.LogDebug("AI prompt body: {Prompt}", LogHelper.SanitizeForLog(prompt));
 
         AiResultPayload result;
         try

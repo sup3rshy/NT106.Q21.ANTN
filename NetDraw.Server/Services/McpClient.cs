@@ -132,7 +132,7 @@ public class McpClient : IMcpClient, IAsyncDisposable
     public async Task<AiResultPayload?> SendCommandAsync(string command, string roomId)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        _logger.LogInformation("MCP request in {RoomId}: {Command}", roomId, Truncate(command, 80));
+        _logger.LogInformation("MCP request in {RoomId}: {Command}", roomId, LogHelper.SanitizeForLog(command, 80));
 
         if (!_ready)
         {
@@ -409,10 +409,10 @@ Canvas: {_canvasWidth} wide × {_canvasHeight} tall. Origin top-left. +x right, 
                 {
                     toolCallCounts.TryGetValue(fc.Name, out var c);
                     toolCallCounts[fc.Name] = c + 1;
-                    // Trace args so we can tune composite defaults if Claude picks bad cx/cy/size
-                    if (fc.Arguments != null)
+                    if (fc.Arguments != null && _logger.IsEnabled(LogLevel.Trace))
                     {
-                        var argStr = string.Join(", ", fc.Arguments.Select(kv => $"{kv.Key}={kv.Value}"));
+                        var argStr = string.Join(", ", fc.Arguments.Select(kv =>
+                            $"{kv.Key}={LogHelper.SanitizeForLog(kv.Value?.ToString(), 120)}"));
                         _logger.LogTrace("MCP tool call: {Tool}({Args})", fc.Name, argStr);
                     }
                 }
@@ -435,7 +435,7 @@ Canvas: {_canvasWidth} wide × {_canvasHeight} tall. Origin top-left. +x right, 
         if (toolCallCounts.Count > 0)
         {
             var summary = string.Join(", ", toolCallCounts.Select(kv => $"{kv.Key}×{kv.Value}"));
-            _logger.LogDebug("MCP tools used: {Summary}", summary);
+            _logger.LogInformation("MCP tools used: {Summary}", summary);
         }
         return list;
     }
