@@ -4,4 +4,5 @@
   <Project Path="NetDraw.Server/NetDraw.Server.csproj" />
   <Project Path="NetDraw.Server.Tests/NetDraw.Server.Tests.csproj" />
   <Project Path="NetDraw.Shared/NetDraw.Shared.csproj" />
+  <Project Path="NetDraw.Shared.Tests/NetDraw.Shared.Tests.csproj" />
 </Solution>
