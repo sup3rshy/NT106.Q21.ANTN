@@ -47,7 +47,7 @@ public class MessageDispatcher
             _lastRejectReply[sender] = now;
 
             var err = NetMessage<ErrorPayload>.Create(MessageType.Error, "server", "Server", envelope.RoomId,
-                new ErrorPayload { Message = "Rate limit exceeded" });
+                new ErrorPayload { Message = "Rate limit exceeded", Code = ErrorCodes.RateLimited });
             try
             {
                 await sender.SendAsync(err);

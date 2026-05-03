@@ -91,7 +91,11 @@ public class ClientHandler
                 {
                     var err = NetMessage<ErrorPayload>.Create(
                         MessageType.Error, "server", "Server", envelope.RoomId,
-                        new ErrorPayload { Message = $"Protocol version {envelope.Version} not supported (server expects {ProtocolVersion.Current})" });
+                        new ErrorPayload
+                        {
+                            Message = $"Protocol version {envelope.Version} not supported (server expects {ProtocolVersion.Current})",
+                            Code = ErrorCodes.ProtocolVersion
+                        });
                     await SendAsync(err);
                     _isConnected = false;
                     break;
