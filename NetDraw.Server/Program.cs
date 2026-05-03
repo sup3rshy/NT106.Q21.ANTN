@@ -71,20 +71,28 @@ dispatcher.Register(new PresenceHandler(roomService));
 dispatcher.Register(new ChatHandler(roomService));
 dispatcher.Register(new AiHandler(roomService, mcpClient, fallbackParser, loggerFactory.CreateLogger<AiHandler>(), maxPromptBytes: maxAiPromptBytes));
 
+// Health endpoint for the load balancer; port via HEALTH_PORT to avoid changing the positional CLI.
+int healthPort = ReadIntEnv("HEALTH_PORT", 5050, min: 1, max: 65535);
+var healthServer = new HttpHealthServer(healthPort, roomService, loggerFactory.CreateLogger<HttpHealthServer>());
+var healthCts = new CancellationTokenSource();
+AppDomain.CurrentDomain.ProcessExit += (_, _) => { healthCts.Cancel(); healthCts.Dispose(); };
+_ = Task.Run(() => healthServer.RunAsync(healthCts.Token));
+
 // Start server
 var server = new DrawServer(port, dispatcher, clientRegistry, roomService, rateLimiter, loggerFactory);
 startupLogger.LogInformation("Starting on port {Port}", port);
+startupLogger.LogInformation("Health endpoint: {Prefix}health", healthServer.BoundPrefix);
 startupLogger.LogInformation("Claude API key: {KeyStatus}", string.IsNullOrWhiteSpace(apiKey) ? "(none — fallback parser only)" : "present");
 startupLogger.LogInformation("MCP project: {McpProjectPath}", mcpProjectPath ?? "(not found)");
 await server.StartAsync();
 
-static int ReadIntEnv(string name, int @default, int min)
+static int ReadIntEnv(string name, int @default, int min, int max = int.MaxValue)
 {
     var raw = Environment.GetEnvironmentVariable(name);
     if (string.IsNullOrWhiteSpace(raw)) return @default;
-    if (int.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var v) && v >= min)
+    if (int.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var v) && v >= min && v <= max)
         return v;
-    Console.Error.WriteLine($"[config] Invalid {name}=\"{raw}\" (need int >= {min}); using default {@default}");
+    Console.Error.WriteLine($"[config] Invalid {name}=\"{raw}\" (need int in [{min}, {max}]); using default {@default}");
     return @default;
 }
 
