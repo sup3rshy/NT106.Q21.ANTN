@@ -39,9 +39,16 @@ dispatcher.Register(new PresenceHandler(roomService));
 dispatcher.Register(new ChatHandler(roomService));
 dispatcher.Register(new AiHandler(roomService, mcpClient, fallbackParser));
 
+// Health endpoint for the load balancer; port via HEALTH_PORT to avoid changing the positional CLI.
+int healthPort = int.TryParse(Environment.GetEnvironmentVariable("HEALTH_PORT"), out var hp) ? hp : 5050;
+var healthServer = new HttpHealthServer(healthPort, roomService, clientRegistry);
+var healthCts = new CancellationTokenSource();
+_ = Task.Run(() => healthServer.RunAsync(healthCts.Token));
+
 // Start server
 var server = new DrawServer(port, dispatcher, clientRegistry, roomService);
 Console.WriteLine($"[NetDraw Server] Starting on port {port}...");
+Console.WriteLine($"[NetDraw Server] Health endpoint: http://+:{healthPort}/health");
 Console.WriteLine($"[NetDraw Server] Claude API key: {(string.IsNullOrWhiteSpace(apiKey) ? "(none — fallback parser only)" : "present")}");
 Console.WriteLine($"[NetDraw Server] MCP project:    {mcpProjectPath ?? "(not found)"}");
 await server.StartAsync();
