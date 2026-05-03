@@ -131,7 +131,7 @@ if (!insecure)
         serverCert = new X509Certificate2(
             certPath,
             certPass,
-            X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet);
+            X509KeyStorageFlags.EphemeralKeySet);
     }
     catch (Exception ex)
     {

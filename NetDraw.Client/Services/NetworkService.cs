@@ -51,9 +51,19 @@ public class NetworkService : INetworkService
     //                          of the server's leaf cert (uppercase hex, no separators).
     public NetworkService()
         : this(
-            insecure: Environment.GetEnvironmentVariable("NETDRAW_INSECURE") != "0",
+            insecure: ParseInsecure(Environment.GetEnvironmentVariable("NETDRAW_INSECURE")),
             pin: Environment.GetEnvironmentVariable("NETDRAW_PIN") ?? string.Empty)
     {
+    }
+
+    private static bool ParseInsecure(string? raw)
+    {
+        if (raw is null) return true;
+        var v = raw.Trim();
+        return !(v.Equals("0", StringComparison.Ordinal)
+              || v.Equals("false", StringComparison.OrdinalIgnoreCase)
+              || v.Equals("no",    StringComparison.OrdinalIgnoreCase)
+              || v.Equals("off",   StringComparison.OrdinalIgnoreCase));
     }
 
     public NetworkService(bool insecure, string pin)

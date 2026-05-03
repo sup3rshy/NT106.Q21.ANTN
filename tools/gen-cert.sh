@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # tools/gen-cert.sh — dev cert generator for the in-house TLS layer (Phase 1).
 #
+# Run from a POSIX shell. On Windows: Git Bash or WSL — won't run from
+# cmd.exe / PowerShell directly (uses heredocs, mktemp, openssl).
+#
 # Generates a self-signed dev CA (RSA-4096, 10y), a leaf cert signed by it
 # (RSA-2048, 1y) with SAN covering localhost, 127.0.0.1, and *.netdraw.local,
 # and writes a SHA-256 thumbprint of the leaf for the client to pin.

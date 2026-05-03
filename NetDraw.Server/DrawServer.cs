@@ -73,47 +73,48 @@ public class DrawServer
                 break;
             }
 
-            Stream? stream = await TryWrapStreamAsync(tcpClient);
-            if (stream is null) continue; // handshake failed; tcpClient already disposed
-
-            var handler = new ClientHandler(tcpClient, stream, _loggerFactory.CreateLogger<ClientHandler>());
-
-            handler.MessageReceived += async (sender, envelope) =>
-            {
-                try
-                {
-                    await _dispatcher.DispatchAsync(envelope, sender);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Dispatch error for {MessageType} from {SenderId}", envelope.Type, envelope.SenderId);
-                }
-            };
-
-            handler.Disconnected += async client =>
-            {
-                _logger.LogInformation("Client disconnected: {UserName}", client.UserName);
-                _rateLimiter.Forget(client);
-                _dispatcher.ForgetClient(client);
-
-                var roomId = _roomService.GetRoomIdForClient(client);
-                bool persisted = _sessionTokenStore.MarkOrphaned(client);
-
-                if (persisted && roomId != null)
-                {
-                    // Hold the user's room slot for the grace window so peers don't see
-                    // UserLeft → instant rejoin churn on a flaky network. If TryClaim
-                    // rebinds the entry before the timer fires, the deferred cleanup
-                    // sees a different (live) handler bound to that UserId and bails.
-                    ScheduleDeferredCleanup(client, roomId, client.SessionToken);
-                    return;
-                }
-
-                await TeardownAsync(client, roomId);
-            };
-
-            _ = Task.Run(handler.ListenAsync);
+            _ = Task.Run(() => OnboardClientAsync(tcpClient));
         }
+    }
+
+    private async Task OnboardClientAsync(TcpClient tcpClient)
+    {
+        Stream? stream = await TryWrapStreamAsync(tcpClient);
+        if (stream is null) return; // handshake failed; tcpClient already disposed
+
+        var handler = new ClientHandler(tcpClient, stream, _loggerFactory.CreateLogger<ClientHandler>());
+
+        handler.MessageReceived += async (sender, envelope) =>
+        {
+            try
+            {
+                await _dispatcher.DispatchAsync(envelope, sender);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Dispatch error for {MessageType} from {SenderId}", envelope.Type, envelope.SenderId);
+            }
+        };
+
+        handler.Disconnected += async client =>
+        {
+            _logger.LogInformation("Client disconnected: {UserName}", client.UserName);
+            _rateLimiter.Forget(client);
+            _dispatcher.ForgetClient(client);
+
+            var roomId = _roomService.GetRoomIdForClient(client);
+            bool persisted = _sessionTokenStore.MarkOrphaned(client);
+
+            if (persisted && roomId != null)
+            {
+                ScheduleDeferredCleanup(client, roomId, client.SessionToken);
+                return;
+            }
+
+            await TeardownAsync(client, roomId);
+        };
+
+        await handler.ListenAsync();
     }
 
     // Returns the stream the ClientHandler should read/write on, or null if the
@@ -127,6 +128,8 @@ public class DrawServer
 
         var raw = tcpClient.GetStream();
         var ssl = new SslStream(raw, leaveInnerStreamOpen: false);
+        using var handshakeTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token, handshakeTimeout.Token);
         try
         {
             await ssl.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
@@ -135,7 +138,7 @@ public class DrawServer
                 ClientCertificateRequired = false,
                 EnabledSslProtocols = SslProtocols.Tls13,
                 CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
-            }, _cts.Token);
+            }, linked.Token);
             return ssl;
         }
         catch (Exception ex) when (ex is AuthenticationException or IOException or OperationCanceledException)
