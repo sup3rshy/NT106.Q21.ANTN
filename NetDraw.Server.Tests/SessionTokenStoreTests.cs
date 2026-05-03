@@ -90,7 +90,7 @@ public class SessionTokenStoreTests
     }
 
     [Fact]
-    public void TryClaim_race_first_wins()
+    public async Task TryClaim_race_first_wins()
     {
         // Two concurrent reconnects on the same orphaned token: exactly one must
         // win the rebind, the other gets false. Repeat the experiment to amortize
@@ -115,7 +115,7 @@ public class SessionTokenStoreTests
                     var t1 = Task.Run(() => { gate.Wait(); r1 = store.TryClaim(token, h1, out _, out _); });
                     var t2 = Task.Run(() => { gate.Wait(); r2 = store.TryClaim(token, h2, out _, out _); });
                     gate.Set();
-                    Task.WaitAll(t1, t2);
+                    await Task.WhenAll(t1, t2);
 
                     Assert.True(r1 ^ r2, $"Iteration {i}: expected exactly one winner, got r1={r1} r2={r2}");
                 }
