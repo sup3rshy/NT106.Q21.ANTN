@@ -38,15 +38,30 @@ public class AiHandler : IMessageHandler
 
     private async Task ProcessInBackgroundAsync(string prompt, string senderId, string roomId)
     {
-        var queue = _roomQueues.GetOrAdd(roomId, _ => new SemaphoreSlim(1, 1));
-        await queue.WaitAsync();
         try
         {
-            await ProcessOneAsync(prompt, senderId, roomId);
+            if (_roomService.GetRoom(roomId) == null)
+            {
+                Console.WriteLine($"[AI] reject: room not found: {roomId}");
+                return;
+            }
+
+            SemaphoreSlim queue = _roomQueues.GetOrAdd(roomId, _ => new SemaphoreSlim(1, 1));
+            bool acquired = false;
+            try
+            {
+                await queue.WaitAsync();
+                acquired = true;
+                await ProcessOneAsync(prompt, senderId, roomId);
+            }
+            finally
+            {
+                if (acquired) queue.Release();
+            }
         }
-        finally
+        catch (Exception ex)
         {
-            queue.Release();
+            Console.WriteLine($"[AI] queue error: {ex}");
         }
     }
 
