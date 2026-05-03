@@ -225,10 +225,13 @@ public class NdrawFileTests
             var doc = NdrawFile.Load(path);
 
             Assert.Equal(3, doc.Actions.Count);
+            Assert.IsType<PenAction>(doc.Actions[0]);
             Assert.Equal("alice", doc.Actions[0].UserId);
             Assert.Equal("Alice", doc.Actions[0].UserName);
+            Assert.IsType<ShapeAction>(doc.Actions[1]);
             Assert.Equal("bob", doc.Actions[1].UserId);
             Assert.Equal("Bob", doc.Actions[1].UserName);
+            Assert.IsType<TextAction>(doc.Actions[2]);
             Assert.Equal("carol", doc.Actions[2].UserId);
             Assert.Equal("Carol", doc.Actions[2].UserName);
         }

@@ -637,7 +637,9 @@ public partial class MainWindow : Window
         var dialog = new Microsoft.Win32.SaveFileDialog
         {
             Filter = "NetDraw|*.ndraw|Legacy|*.ndr|JSON|*.json",
-            FileName = $"drawing_{DateTime.Now:yyyyMMdd_HHmmss}.ndraw"
+            FileName = $"drawing_{DateTime.Now:yyyyMMdd_HHmmss}.ndraw",
+            DefaultExt = "ndraw",
+            AddExtension = true
         };
         if (dialog.ShowDialog() != true) return;
 
@@ -668,7 +670,10 @@ public partial class MainWindow : Window
                 var doc = NdrawFile.Load(dialog.FileName);
                 actions = doc.Actions.ToList();
             }
-            catch (System.IO.InvalidDataException ex)
+            catch (Exception ex) when (ex is System.IO.InvalidDataException
+                                         or System.IO.IOException
+                                         or UnauthorizedAccessException
+                                         or Newtonsoft.Json.JsonException)
             {
                 MessageBox.Show($"File không hợp lệ: {ex.Message}", "Lỗi");
                 return;
