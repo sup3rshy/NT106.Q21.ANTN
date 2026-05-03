@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 namespace NetDraw.Server.Services;
 
@@ -16,7 +17,7 @@ public class TokenBucketRateLimiter : IRateLimiter
 
     public bool TryAcquire(ClientHandler client)
     {
-        var bucket = _buckets.GetOrAdd(client, _ => new Bucket(_capacity, DateTimeOffset.UtcNow));
+        var bucket = _buckets.GetOrAdd(client, _ => new Bucket(_capacity, Stopwatch.GetTimestamp()));
         lock (bucket)
         {
             // Lost a Forget race: drop the new ghost bucket so the dict can't grow per
@@ -27,8 +28,8 @@ public class TokenBucketRateLimiter : IRateLimiter
                 return false;
             }
 
-            var now = DateTimeOffset.UtcNow;
-            var elapsed = (now - bucket.LastRefill).TotalSeconds;
+            var now = Stopwatch.GetTimestamp();
+            var elapsed = Math.Max(0, (now - bucket.LastRefill) / (double)Stopwatch.Frequency);
             bucket.Tokens = Math.Min(_capacity, bucket.Tokens + elapsed * _refillPerSec);
             bucket.LastRefill = now;
 
@@ -52,9 +53,9 @@ public class TokenBucketRateLimiter : IRateLimiter
     private sealed class Bucket
     {
         public double Tokens;
-        public DateTimeOffset LastRefill;
+        public long LastRefill;
         public bool Forgotten;
-        public Bucket(double tokens, DateTimeOffset lastRefill)
+        public Bucket(double tokens, long lastRefill)
         {
             Tokens = tokens;
             LastRefill = lastRefill;
