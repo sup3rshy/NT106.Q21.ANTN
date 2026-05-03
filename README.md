@@ -146,6 +146,78 @@ Giao thức sử dụng **JSON + newline (`\n`) delimiter** trên TCP Socket.
 | `AiCommand` | Client → Server → MCP | Lệnh vẽ AI |
 | `AiDrawResult` | MCP → Server → All | Kết quả AI trả về (danh sách DrawAction) |
 
+## Sequence diagrams
+
+### Join room
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as DrawServer
+    participant Other as Other clients in room
+
+    C->>S: JoinRoom { roomId, version }
+    alt version mismatch or room/server full
+        S-->>C: Error
+    else accepted
+        S->>S: AddUserToRoom (assign per-room color)
+        S-->>C: RoomJoined { history, users }
+        S-->>Other: UserJoined { user }
+    end
+```
+
+### Draw broadcast
+
+```mermaid
+sequenceDiagram
+    participant C as Client (drawer)
+    participant S as DrawServer
+    participant Peers as Other clients in room
+
+    C->>S: Draw { DrawAction }
+    S->>S: TokenBucket TryAcquire(client)
+    alt rate-limited
+        S-->>C: Error "Rate limit exceeded"
+    else allowed
+        S->>S: DrawHandler -> Room.AddAction
+        par fan-out
+            S-->>Peers: Draw (broadcast, excluding sender)
+        end
+    end
+```
+
+### AI prompt flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as DrawServer
+    participant Q as Per-room AI queue
+    participant M as McpServer (stdio)
+    participant AI as Claude API
+    participant Room as All clients in room
+
+    C->>S: AiCommand { prompt }
+    S->>S: prompt-length check
+    alt too long
+        S-->>C: Error
+    else
+        S->>Q: WaitAsync (room semaphore)
+        Q-->>S: acquired
+        alt MCP connected
+            S->>M: SendCommand(prompt) over MCP SDK
+            M->>AI: Chat with tools attached
+            AI-->>M: tool_use calls
+            M-->>S: AiResultPayload { actions }
+        else MCP offline
+            S->>S: FallbackAiParser (rule-based)
+        end
+        S->>S: Room.AddActions(result.actions)
+        S-->>Room: AiResult (broadcast to all)
+        S->>Q: Release
+    end
+```
+
 ## Hướng dẫn chạy
 
 ### Yêu cầu
