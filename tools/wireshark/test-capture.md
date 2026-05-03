@@ -24,7 +24,7 @@ a chat message, and the cursor moves:
 
 ```
 12  JoinRoom    alice  demo  (no detail)
-13  RoomJoined  server demo  (no detail)
+13  RoomJoined  Server demo  (no detail)
 27  CursorMove  alice  demo  x=120 y=85 color=#FF0000
 31  Draw        alice  demo  Pen pts=42 color=#FF0000 stroke=3
 38  ChatMessage alice  demo  text="Đẹp quá!"

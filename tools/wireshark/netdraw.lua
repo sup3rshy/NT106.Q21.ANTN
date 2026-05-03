@@ -1,9 +1,9 @@
 -- NetDraw protocol dissector for Wireshark.
 --
--- Wire format: one JSON object per TCP segment, terminated by '\n'.
--- A single TCP segment may carry multiple messages, and a single message
--- may straddle TCP segments; both cases are handled by length-based
--- desegmentation against the trailing newline delimiter.
+-- Wire format: newline-delimited JSON ('\n' framing). Each line is one
+-- complete JSON envelope. A single TCP segment may carry many lines, and
+-- a single line may straddle TCP segments; both cases are handled by
+-- desegmenting against the next '\n'.
 
 local netdraw_proto = Proto("netdraw", "NetDraw collaborative drawing protocol")
 
@@ -63,6 +63,15 @@ local SHAPE_TYPE_NAMES = {
 -- The protocol JSON is small (a single envelope per line, payloads at
 -- most a few KB). Wireshark's bundled Lua does not ship dkjson on every
 -- platform/installer, so a hand-roll is the portable choice.
+--
+-- Limitations to know:
+--   * `null` values are discarded (Lua tables cannot store nil; using a
+--     sentinel would complicate every summarizer for a case the wire
+--     format avoids via NullValueHandling.Ignore on the producer).
+--   * `\uXXXX` only decodes BMP codepoints; surrogate pairs are not
+--     reassembled. The producer emits raw UTF-8 for non-ASCII rather
+--     than escapes, so this only bites if a future client serializes
+--     emoji as `😀`.
 ----------------------------------------------------------------------
 
 local Json = {}
@@ -161,9 +170,6 @@ local function parse_object(s, i)
         i = skip_ws(s, i + 1)
         local val
         val, i = parse_value(s, i)
-        if val == nil and s:sub(i - 1, i - 1) ~= "l" then
-            -- "l" tail = "null"; keep nil entries when explicitly null.
-        end
         out[key] = val
         i = skip_ws(s, i)
         local c = s:sub(i, i)
@@ -228,7 +234,20 @@ local function truncate(s, n)
     if s == nil then return "" end
     s = tostring(s)
     if #s <= n then return s end
-    return s:sub(1, n) .. "..."
+    -- s:sub counts bytes, not codepoints. Walk back over UTF-8 continuation
+    -- bytes (10xxxxxx) so the truncation never lands mid-codepoint and
+    -- emits invalid UTF-8 in the column for Vietnamese/emoji input.
+    local cut = n
+    while cut > 0 do
+        local b = s:byte(cut)
+        if b < 0x80 or b >= 0xC0 then break end
+        cut = cut - 1
+    end
+    if cut > 0 then
+        local b = s:byte(cut)
+        if b >= 0xC0 then cut = cut - 1 end
+    end
+    return s:sub(1, cut) .. "..."
 end
 
 local function shape_name(v)
@@ -285,12 +304,22 @@ local function summarize_error(payload)
     return string.format("error=%q", truncate(payload.message or payload.error, 60))
 end
 
+local function summarize_ai_result(payload)
+    if not payload then return "(no detail)" end
+    if payload.error and payload.error ~= "" then
+        return string.format("error=%q", truncate(payload.error, 60))
+    end
+    local actions = payload.actions
+    local n = (type(actions) == "table") and #actions or 0
+    return string.format("actions=%d", n)
+end
+
 local function summarize(type_name, payload)
     if     type_name == "Draw"        then return summarize_draw(payload)
     elseif type_name == "DrawPreview" then return summarize_draw(payload)
     elseif type_name == "ChatMessage" then return summarize_chat(payload)
     elseif type_name == "AiCommand"   then return summarize_ai_command(payload)
-    elseif type_name == "AiResult"    then return summarize_ai_command(payload)
+    elseif type_name == "AiResult"    then return summarize_ai_result(payload)
     elseif type_name == "CursorMove"  then return summarize_cursor(payload)
     elseif type_name == "Error"       then return summarize_error(payload)
     end
@@ -368,22 +397,23 @@ function netdraw_proto.dissector(tvb, pinfo, tree)
     pinfo.cols.protocol = netdraw_proto.name
     pinfo.cols.info = ""
 
+    -- Cache the segment's raw bytes once and search by absolute index;
+    -- the prior `tvb(offset):raw()` per-iteration was O(n²) per segment
+    -- on a TCP push that contained many framed messages.
+    local raw = tvb:raw()
     local offset = 0
     while offset < len do
-        local remaining = tvb(offset)
-        local raw = remaining:raw()
-        local nl = raw:find("\n", 1, true)
+        local nl = raw:find("\n", offset + 1, true)
         if nl == nil then
-            -- Need more bytes to complete this line; ask for one more
-            -- segment and re-dissect from the same offset.
             pinfo.desegment_offset = offset
             pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
             return len
         end
 
-        local line_tvb = tvb(offset, nl)
+        local line_len = nl - offset
+        local line_tvb = tvb(offset, line_len)
         dissect_message(line_tvb, pinfo, tree)
-        offset = offset + nl
+        offset = offset + line_len
     end
 
     return offset
