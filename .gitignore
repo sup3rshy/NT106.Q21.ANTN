@@ -16,3 +16,6 @@
 docs/superpowers/
 CLAUDE.md
 .claude/
+
+## TLS dev artifacts (regenerable via tools/gen-cert.sh)
+dev/

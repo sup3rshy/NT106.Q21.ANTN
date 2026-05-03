@@ -1,4 +1,8 @@
+using System.IO;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using NetDraw.Shared.Models;
 using NetDraw.Shared.Protocol;
@@ -10,8 +14,12 @@ namespace NetDraw.Client.Services;
 public class NetworkService : INetworkService
 {
     private TcpClient? _client;
-    private NetworkStream? _stream;
+    // Stream not NetworkStream: TLS path wraps in SslStream; plaintext path
+    // hands the NetworkStream straight through. Both expose the same surface.
+    private Stream? _stream;
     private bool _isConnected;
+    private readonly bool _insecure;
+    private readonly string _pin;
     private readonly StringBuilder _buffer = new();
     // Decoder (not Encoding.GetString) — keeps state across reads so a UTF-8 sequence
     // split between two ReadAsync chunks decodes correctly.
@@ -36,6 +44,34 @@ public class NetworkService : INetworkService
     public event Action<MessageType, string, string, string, JObject?>? MessageReceived;
     public event Action<string>? Disconnected;
 
+    // Phase 1 TLS opt-in. Defaults read from env so adding CLI plumbing to
+    // App.xaml.cs stays out of scope for this PR. Phase 2 will flip the default.
+    //   NETDRAW_INSECURE=1   → plaintext (Phase 1 default)
+    //   NETDRAW_PIN=<HEX>    → required when not insecure; the SHA-256 thumbprint
+    //                          of the server's leaf cert (uppercase hex, no separators).
+    public NetworkService()
+        : this(
+            insecure: ParseInsecure(Environment.GetEnvironmentVariable("NETDRAW_INSECURE")),
+            pin: Environment.GetEnvironmentVariable("NETDRAW_PIN") ?? string.Empty)
+    {
+    }
+
+    private static bool ParseInsecure(string? raw)
+    {
+        if (raw is null) return true;
+        var v = raw.Trim();
+        return !(v.Equals("0", StringComparison.Ordinal)
+              || v.Equals("false", StringComparison.OrdinalIgnoreCase)
+              || v.Equals("no",    StringComparison.OrdinalIgnoreCase)
+              || v.Equals("off",   StringComparison.OrdinalIgnoreCase));
+    }
+
+    public NetworkService(bool insecure, string pin)
+    {
+        _insecure = insecure;
+        _pin = pin ?? string.Empty;
+    }
+
     public async Task<bool> ConnectAsync(string host, int port)
     {
         try
@@ -48,9 +84,42 @@ public class NetworkService : INetworkService
             _userInitiatedDisconnect = false;
             LastDisconnectWasUserInitiated = false;
 
+            if (!_insecure && string.IsNullOrWhiteSpace(_pin))
+            {
+                // No pin → no way to validate the server. Refusing here rather than
+                // silently accepting any cert preserves the only thing TLS+pin gives us.
+                Disconnected?.Invoke("TLS bật nhưng NETDRAW_PIN trống — không thể xác thực server.");
+                return false;
+            }
+
             _client = new TcpClient();
             await _client.ConnectAsync(host, port);
-            _stream = _client.GetStream();
+            Stream stream = _client.GetStream();
+
+            if (!_insecure)
+            {
+                var ssl = new SslStream(stream, leaveInnerStreamOpen: false);
+                try
+                {
+                    await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+                    {
+                        TargetHost = host,
+                        EnabledSslProtocols = SslProtocols.Tls13,
+                        CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
+                        RemoteCertificateValidationCallback = ValidatePinned,
+                    });
+                }
+                catch (Exception ex) when (ex is AuthenticationException or IOException)
+                {
+                    try { ssl.Dispose(); } catch { }
+                    try { _client?.Close(); } catch { }
+                    Disconnected?.Invoke($"TLS handshake thất bại: {ex.Message}");
+                    return false;
+                }
+                stream = ssl;
+            }
+
+            _stream = stream;
             _isConnected = true;
             if (string.IsNullOrEmpty(ClientId)) ClientId = Guid.NewGuid().ToString("N")[..8];
             _ = Task.Run(ListenAsync);
@@ -61,6 +130,36 @@ public class NetworkService : INetworkService
             Disconnected?.Invoke($"Không thể kết nối: {ex.Message}");
             return false;
         }
+    }
+
+    // Pin the leaf, not the chain. Self-signed dev cert means SslPolicyErrors will
+    // include UntrustedRoot and possibly RemoteCertificateNameMismatch — both are
+    // expected and ignored. Only the SHA-256 thumbprint of the presented leaf decides.
+    private bool ValidatePinned(object _, X509Certificate? cert, X509Chain? __, SslPolicyErrors ___)
+    {
+        if (cert is null) return false;
+        var leaf = cert as X509Certificate2 ?? new X509Certificate2(cert);
+        var actual = leaf.GetCertHashString(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        return FixedTimeEquals(actual, _pin);
+    }
+
+    // Length-tolerant constant-time string compare. A timing oracle on a public
+    // SHA-256 thumbprint is not a real attack (the value is meant to be public),
+    // but the constant-time compare is the discipline this layer should keep.
+    private static bool FixedTimeEquals(string a, string b)
+    {
+        if (a.Length != b.Length) return false;
+        int diff = 0;
+        for (int i = 0; i < a.Length; i++)
+        {
+            char ca = a[i];
+            char cb = b[i];
+            // Case-insensitive over ASCII hex.
+            if (ca >= 'a' && ca <= 'z') ca = (char)(ca - 32);
+            if (cb >= 'a' && cb <= 'z') cb = (char)(cb - 32);
+            diff |= ca ^ cb;
+        }
+        return diff == 0;
     }
 
     private async Task ListenAsync()

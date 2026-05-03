@@ -253,7 +253,7 @@ public class ClientHandlerFramerTests
         await peer.ConnectAsync(IPAddress.Loopback, port);
         var server = await acceptTask;
 
-        var handler = new ClientHandler(server, NullLogger<ClientHandler>.Instance);
+        var handler = new ClientHandler(server, server.GetStream(), NullLogger<ClientHandler>.Instance);
         return (handler, peer.GetStream(), listener);
     }
 

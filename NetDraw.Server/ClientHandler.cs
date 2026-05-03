@@ -11,7 +11,11 @@ public class ClientHandler
     private const int MaxJsonLineLength = 1_048_576;
 
     private readonly TcpClient _tcpClient;
-    private readonly NetworkStream _stream;
+    // Stream not NetworkStream: same surface for plaintext (NetworkStream) and
+    // TLS (SslStream). The TLS handshake happens before this object is constructed,
+    // so the read/write loop is framing-agnostic — newline-delimited JSON and
+    // length-prefixed binary frames all flow over whichever stream was passed in.
+    private readonly Stream _stream;
     private readonly ByteFrameBuffer _buffer = new();
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly ILogger<ClientHandler> _logger;
@@ -31,10 +35,10 @@ public class ClientHandler
     public event Func<ClientHandler, MessageEnvelope.Envelope, Task>? MessageReceived;
     public event Func<ClientHandler, Task>? Disconnected;
 
-    public ClientHandler(TcpClient tcpClient, ILogger<ClientHandler> logger)
+    public ClientHandler(TcpClient tcpClient, Stream stream, ILogger<ClientHandler> logger)
     {
         _tcpClient = tcpClient;
-        _stream = tcpClient.GetStream();
+        _stream = stream;
         _logger = logger;
     }
 

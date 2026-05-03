@@ -1,9 +1,15 @@
+using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Logging;
 using NetDraw.Server;
 using NetDraw.Server.Ai;
 using NetDraw.Server.Handlers;
 using NetDraw.Server.Pipeline;
 using NetDraw.Server.Services;
+
+// --insecure parsing happens before positional args so existing
+// `dotnet run --project NetDraw.Server -- 5000` invocations stay valid.
+// Phase 1 default: insecure=true (plaintext). Phase 2 will flip the default.
+bool insecure = ParseInsecureFlag(ref args, defaultValue: true);
 
 int port = args.Length > 0 && int.TryParse(args[0], out var p) ? p : 5000;
 
@@ -106,14 +112,60 @@ else
     startupLogger.LogInformation("LAN discovery beacon: {Group}:{Port} every {IntervalSec}s", beaconGroup, beaconPort, beaconIntervalSec);
 }
 
+// TLS cert load. Empty TLS_CERT_PASSWORD is allowed because gen-cert.sh
+// produces a no-password dev pfx. A misconfigured TLS-on server (--insecure=false
+// without a loadable cert) exits non-zero — falling back to plaintext silently
+// would defeat the point of opting in.
+X509Certificate2? serverCert = null;
+if (!insecure)
+{
+    var certPath = Environment.GetEnvironmentVariable("TLS_CERT_PATH");
+    if (string.IsNullOrWhiteSpace(certPath))
+    {
+        startupLogger.LogCritical("--insecure=false but TLS_CERT_PATH is not set. Run tools/gen-cert.sh and export TLS_CERT_PATH.");
+        return 1;
+    }
+    var certPass = Environment.GetEnvironmentVariable("TLS_CERT_PASSWORD") ?? string.Empty;
+    try
+    {
+        serverCert = new X509Certificate2(
+            certPath,
+            certPass,
+            X509KeyStorageFlags.EphemeralKeySet);
+    }
+    catch (Exception ex)
+    {
+        startupLogger.LogCritical(ex, "Failed to load TLS cert from {CertPath}", certPath);
+        return 1;
+    }
+    startupLogger.LogInformation("TLS cert loaded; pin (SHA-256): {Pin}",
+        serverCert.GetCertHashString(System.Security.Cryptography.HashAlgorithmName.SHA256));
+}
+
 // Start server
-var server = new DrawServer(port, dispatcher, clientRegistry, roomService, rateLimiter, sessionTokenStore, loggerFactory);
-startupLogger.LogInformation("Starting on port {Port}", port);
+var server = new DrawServer(port, dispatcher, clientRegistry, roomService, rateLimiter, sessionTokenStore, loggerFactory, serverCert);
+startupLogger.LogInformation("Starting on port {Port} ({Mode})",
+    port, insecure ? "plaintext (--insecure=true)" : "TLS 1.3");
 startupLogger.LogInformation("Session resume grace: {GraceSeconds}s", graceSeconds);
 startupLogger.LogInformation("Health endpoint: {Prefix}health", healthServer.BoundPrefix);
 startupLogger.LogInformation("Claude API key: {KeyStatus}", string.IsNullOrWhiteSpace(apiKey) ? "(none — fallback parser only)" : "present");
 startupLogger.LogInformation("MCP project: {McpProjectPath}", mcpProjectPath ?? "(not found)");
 await server.StartAsync();
+return 0;
+
+static bool ParseInsecureFlag(ref string[] args, bool defaultValue)
+{
+    var remaining = new List<string>(args.Length);
+    bool? value = null;
+    foreach (var a in args)
+    {
+        if (a == "--insecure" || a == "--insecure=true") { value = true; continue; }
+        if (a == "--insecure=false") { value = false; continue; }
+        remaining.Add(a);
+    }
+    args = remaining.ToArray();
+    return value ?? defaultValue;
+}
 
 static int ReadIntEnv(string name, int @default, int min, int max = int.MaxValue)
 {

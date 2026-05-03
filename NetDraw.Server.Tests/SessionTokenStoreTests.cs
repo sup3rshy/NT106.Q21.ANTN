@@ -142,7 +142,7 @@ public class SessionTokenStoreTests
         var peer = new TcpClient();
         peer.Connect(IPAddress.Loopback, port);
         var server = acceptTask.GetAwaiter().GetResult();
-        var handler = new ClientHandler(server, NullLogger<ClientHandler>.Instance);
+        var handler = new ClientHandler(server, server.GetStream(), NullLogger<ClientHandler>.Instance);
         return (handler, peer.GetStream(), listener);
     }
 #pragma warning restore xUnit1031
