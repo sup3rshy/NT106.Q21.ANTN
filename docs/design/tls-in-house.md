@@ -294,6 +294,8 @@ Four phases, sized small/small/medium/medium. Phases 1–3 are the TLS work prop
 **Phase 1 (S) — Cert script + server SslStream + client cert pin, default off, opt-in.**
 Ship `tools/gen-cert.sh`, the `SslStream` wrap on both sides, and the pinning callback. The single CLI flag is `--insecure` on both server and client. In Phase 1 it defaults to `true` (plaintext is the unchanged default; TLS is opted into by passing `--insecure=false`). CI and local dev keep working without the cert. The demo is run with `--insecure=false` on both sides; passing the demo is the acceptance criterion.
 
+> **Status:** implemented. Wire-up is opt-in via `--insecure=false` on the server and `NETDRAW_INSECURE=0` on the client. The 4-byte LB prefix is intentionally not read in Phase 1 — no LB exists yet, so that step is deferred to the LB rollout. The cert script writes `dev/server.pin.sha256` (matching the task-side filename) instead of `dev/pin.txt`; everything else matches the design above.
+
 **Phase 2 (S) — Flip the default.**
 `--insecure` flips its default to `false`. Plaintext becomes the explicit opt-out via `--insecure` (or `--insecure=true`). README and the project's run instructions update to mention `gen-cert.sh` as a prerequisite. Anyone who runs `dotnet run --project NetDraw.Server` without the env vars and without `--insecure` gets a clear startup error: "TLS_CERT_PATH not set; run tools/gen-cert.sh or pass --insecure". The server's exit-non-zero behaviour from Phase 1's misconfig path catches this for free.
 
