@@ -96,14 +96,30 @@ public class ClientHandler
     {
         if (!_isConnected) return;
         await _writeLock.WaitAsync();
+        bool fatal = false;
         try
         {
             byte[] data = Encoding.UTF8.GetBytes(json);
             await _stream.WriteAsync(data, 0, data.Length);
             await _stream.FlushAsync();
         }
-        catch { }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException)
+        {
+            Console.WriteLine($"[!] Send to {UserId} failed: {ex.GetType().Name}: {ex.Message}");
+            fatal = true;
+        }
         finally { _writeLock.Release(); }
+
+        if (fatal) await TearDownAsync();
+    }
+
+    private async Task TearDownAsync()
+    {
+        if (!_isConnected) return;
+        _isConnected = false;
+        try { _stream.Close(); _tcpClient.Close(); } catch { }
+        if (Disconnected != null)
+            await Disconnected(this);
     }
 
     public async Task SendAsync<T>(NetMessage<T> message) where T : IPayload
