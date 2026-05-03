@@ -335,9 +335,8 @@ public class MainViewModel : ViewModelBase
                     _events.Publish(new AppendChatEvent($"[Lỗi] {error.Message}", true));
                     if (error.Code == ErrorCodes.AuthResumeFailed)
                     {
-                        // Server's grace already expired or token unknown — drop the cached
-                        // resume credential and fall through to a fresh JoinRoom on the same TCP.
                         Network.SessionToken = string.Empty;
+                        Network.ClearLastSessionToken();
                         _ = Application.Current.Dispatcher.InvokeAsync(async () => await JoinRoomAsync(RoomId));
                     }
                 }

@@ -127,6 +127,47 @@ public class ResumeHandlerTests
         finally { await fixture.DisposeAsync(); }
     }
 
+    [Fact(Timeout = 8000)]
+    public async Task Grace_expiry_eventually_emits_UserLeft()
+    {
+        var fixture = await Fixture.StartAsync(graceSeconds: 1);
+        try
+        {
+            using var alice = new TcpClient(); await fixture.ConnectAsync(alice);
+            using var aliceStream = alice.GetStream();
+            const string roomId = "grace-room";
+            await SendAsync(aliceStream, NetMessage<UserPayload>.Create(
+                MessageType.JoinRoom, "alice", "Alice", roomId,
+                new UserPayload { User = new UserInfo { UserId = "alice", UserName = "Alice" } }));
+            await ReadLineAsync(aliceStream); // Alice RoomJoined
+
+            using var bob = new TcpClient(); await fixture.ConnectAsync(bob);
+            using var bobStream = bob.GetStream();
+            await SendAsync(bobStream, NetMessage<UserPayload>.Create(
+                MessageType.JoinRoom, "bob", "Bob", roomId,
+                new UserPayload { User = new UserInfo { UserId = "bob", UserName = "Bob" } }));
+            await ReadLineAsync(bobStream); // Bob RoomJoined
+            await ReadLineAsync(aliceStream); // Alice receives UserJoined for Bob
+
+            alice.Close();
+
+            string? aliceLeftLine = null;
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (DateTime.UtcNow < deadline)
+            {
+                var line = await TryReadLineAsync(bobStream, TimeSpan.FromMilliseconds(500));
+                if (line is null) continue;
+                var env = MessageEnvelope.Parse(line);
+                if (env?.Type == MessageType.UserLeft && env.SenderId == "alice")
+                {
+                    aliceLeftLine = line; break;
+                }
+            }
+            Assert.NotNull(aliceLeftLine);
+        }
+        finally { await fixture.DisposeAsync(); }
+    }
+
     [Fact(Timeout = 5000)]
     public async Task Resume_with_unknown_token_emits_AuthResumeFailed()
     {

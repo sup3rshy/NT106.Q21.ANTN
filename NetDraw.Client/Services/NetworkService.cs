@@ -128,6 +128,8 @@ public class NetworkService : INetworkService
         }
     }
 
+    public void ClearLastSessionToken() => LastSessionToken = string.Empty;
+
     public void Disconnect()
     {
         if (!_isConnected) return;

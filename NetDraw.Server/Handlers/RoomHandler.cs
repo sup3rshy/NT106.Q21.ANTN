@@ -168,7 +168,9 @@ public class RoomHandler : IMessageHandler
         var room = _roomService.GetRoom(roomId);
         if (room is null)
         {
-            // Grace expired or last room never recorded — fall through to fresh-join.
+            _sessionTokenStore.Remove(token);
+            sender.SessionToken = string.Empty;
+            sender.SessionTokenBytes = null;
             await SendResumeFailedAsync(sender, envelope.RoomId);
             return;
         }
