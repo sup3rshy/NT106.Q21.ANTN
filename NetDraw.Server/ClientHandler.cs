@@ -21,7 +21,7 @@ public class ClientHandler
     public string UserName { get; set; } = "Anonymous";
     public string UserColor { get; set; } = "#7F8C8D";
 
-    public event Func<ClientHandler, MessageType, string, string, string, JObject?, Task>? MessageReceived;
+    public event Func<ClientHandler, MessageEnvelope.Envelope, Task>? MessageReceived;
     public event Func<ClientHandler, Task>? Disconnected;
 
     public ClientHandler(TcpClient tcpClient, ILogger<ClientHandler> logger)
@@ -92,7 +92,7 @@ public class ClientHandler
                 }
 
                 if (MessageReceived != null)
-                    await MessageReceived(this, envelope.Type, envelope.SenderId, envelope.SenderName, envelope.RoomId, envelope.RawPayload);
+                    await MessageReceived(this, envelope);
             }
         }
         _buffer.Clear();

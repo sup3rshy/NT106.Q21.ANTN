@@ -14,11 +14,11 @@ public class ChatHandler : IMessageHandler
 
     public bool CanHandle(MessageType type) => type is MessageType.ChatMessage;
 
-    public async Task HandleAsync(MessageType type, string senderId, string senderName, string roomId, JObject? payload, ClientHandler sender)
+    public async Task HandleAsync(MessageEnvelope.Envelope envelope, ClientHandler sender)
     {
-        var chatPayload = MessageEnvelope.DeserializePayload<ChatPayload>(payload);
+        var chatPayload = MessageEnvelope.DeserializePayload<ChatPayload>(envelope.RawPayload);
         if (chatPayload == null) return;
-        var msg = NetMessage<ChatPayload>.Create(MessageType.ChatMessage, senderId, sender.UserName, roomId, chatPayload);
-        await _roomService.BroadcastToRoomAsync(roomId, msg);
+        var msg = NetMessage<ChatPayload>.Create(MessageType.ChatMessage, envelope.SenderId, sender.UserName, envelope.RoomId, chatPayload);
+        await _roomService.BroadcastToRoomAsync(envelope.RoomId, msg);
     }
 }

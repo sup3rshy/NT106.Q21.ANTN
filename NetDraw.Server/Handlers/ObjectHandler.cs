@@ -15,9 +15,13 @@ public class ObjectHandler : IMessageHandler
     public bool CanHandle(MessageType type) =>
         type is MessageType.MoveObject or MessageType.DeleteObject;
 
-    public async Task HandleAsync(MessageType type, string senderId, string senderName, string roomId, JObject? payload, ClientHandler sender)
+    public async Task HandleAsync(MessageEnvelope.Envelope envelope, ClientHandler sender)
     {
-        if (type == MessageType.MoveObject)
+        var senderId = envelope.SenderId;
+        var roomId = envelope.RoomId;
+        var payload = envelope.RawPayload;
+
+        if (envelope.Type == MessageType.MoveObject)
         {
             var movePayload = MessageEnvelope.DeserializePayload<MoveObjectPayload>(payload);
             if (movePayload == null) return;

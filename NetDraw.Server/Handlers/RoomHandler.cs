@@ -21,15 +21,15 @@ public class RoomHandler : IMessageHandler
     public bool CanHandle(MessageType type) =>
         type is MessageType.JoinRoom or MessageType.LeaveRoom or MessageType.RoomList;
 
-    public async Task HandleAsync(MessageType type, string senderId, string senderName, string roomId, JObject? payload, ClientHandler sender)
+    public async Task HandleAsync(MessageEnvelope.Envelope envelope, ClientHandler sender)
     {
-        switch (type)
+        switch (envelope.Type)
         {
             case MessageType.JoinRoom:
-                await HandleJoinAsync(senderId, senderName, roomId, sender);
+                await HandleJoinAsync(envelope.SenderId, envelope.SenderName, envelope.RoomId, sender);
                 break;
             case MessageType.LeaveRoom:
-                await HandleLeaveAsync(senderId, senderName, sender);
+                await HandleLeaveAsync(envelope.SenderId, envelope.SenderName, sender);
                 break;
             case MessageType.RoomList:
                 await HandleRoomListAsync(sender);

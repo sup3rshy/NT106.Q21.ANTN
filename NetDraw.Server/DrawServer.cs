@@ -65,15 +65,15 @@ public class DrawServer
             }
             var handler = new ClientHandler(tcpClient, _loggerFactory.CreateLogger<ClientHandler>());
 
-            handler.MessageReceived += async (sender, type, senderId, senderName, roomId, payload) =>
+            handler.MessageReceived += async (sender, envelope) =>
             {
                 try
                 {
-                    await _dispatcher.DispatchAsync(type, senderId, senderName, roomId, payload, sender);
+                    await _dispatcher.DispatchAsync(envelope, sender);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Dispatch error for {MessageType} from {SenderId}", type, senderId);
+                    _logger.LogError(ex, "Dispatch error for {MessageType} from {SenderId}", envelope.Type, envelope.SenderId);
                 }
             };
 

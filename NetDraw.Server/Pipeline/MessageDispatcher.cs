@@ -4,7 +4,6 @@ using Microsoft.Extensions.Logging;
 using NetDraw.Server.Services;
 using NetDraw.Shared.Protocol;
 using NetDraw.Shared.Protocol.Payloads;
-using Newtonsoft.Json.Linq;
 
 namespace NetDraw.Server.Pipeline;
 
@@ -37,8 +36,9 @@ public class MessageDispatcher
 
     public void ForgetClient(ClientHandler client) => _lastRejectReply.TryRemove(client, out _);
 
-    public async Task DispatchAsync(MessageType type, string senderId, string senderName, string roomId, JObject? payload, ClientHandler sender)
+    public async Task DispatchAsync(MessageEnvelope.Envelope envelope, ClientHandler sender)
     {
+        var type = envelope.Type;
         if (!RateLimitExempt.Contains(type) && !_rateLimiter.TryAcquire(sender))
         {
             var now = Stopwatch.GetTimestamp();
@@ -46,7 +46,7 @@ public class MessageDispatcher
             if (now - prev < RejectReplyCooldownTicks) return;
             _lastRejectReply[sender] = now;
 
-            var err = NetMessage<ErrorPayload>.Create(MessageType.Error, "server", "Server", roomId,
+            var err = NetMessage<ErrorPayload>.Create(MessageType.Error, "server", "Server", envelope.RoomId,
                 new ErrorPayload { Message = "Rate limit exceeded" });
             try
             {
@@ -54,7 +54,7 @@ public class MessageDispatcher
             }
             catch (Exception ex)
             {
-                _logger.LogWarning("Failed to send rate-limit reply to {SenderId}: {Error}", senderId, ex.Message);
+                _logger.LogWarning("Failed to send rate-limit reply to {SenderId}: {Error}", envelope.SenderId, ex.Message);
             }
             return;
         }
@@ -62,11 +62,11 @@ public class MessageDispatcher
         var handler = _handlers.FirstOrDefault(h => h.CanHandle(type));
         if (handler != null)
         {
-            await handler.HandleAsync(type, senderId, senderName, roomId, payload, sender);
+            await handler.HandleAsync(envelope, sender);
         }
         else
         {
-            _logger.LogWarning("No handler for message type {MessageType} from {SenderId}", type, senderId);
+            _logger.LogWarning("No handler for message type {MessageType} from {SenderId}", type, envelope.SenderId);
         }
     }
 }

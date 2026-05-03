@@ -16,9 +16,13 @@ public class DrawHandler : IMessageHandler
         type is MessageType.Draw or MessageType.DrawPreview
             or MessageType.ClearCanvas or MessageType.Undo or MessageType.Redo;
 
-    public async Task HandleAsync(MessageType type, string senderId, string senderName, string roomId, JObject? payload, ClientHandler sender)
+    public async Task HandleAsync(MessageEnvelope.Envelope envelope, ClientHandler sender)
     {
-        switch (type)
+        var senderId = envelope.SenderId;
+        var roomId = envelope.RoomId;
+        var payload = envelope.RawPayload;
+
+        switch (envelope.Type)
         {
             case MessageType.Draw:
                 var drawPayload = MessageEnvelope.DeserializePayload<DrawPayload>(payload);
