@@ -28,24 +28,23 @@ course asks for.
 
 What this defends against:
 
-- Off-path UDP spoofers on the same LAN. The server pins each UserId to the
-  `(sourceIP, sourcePort)` of its first valid UDP frame, then drops any later
-  frame claiming that UserId from a different endpoint until the pin
-  rebinds (see "Endpoint pinning" below). An attacker who can guess Alice's
-  UserId but cannot read her packets cannot inject cursor traffic for her.
 - Garbage frames. The 2-byte magic `'N','D'` plus version + type + length
   filters the obvious noise (port scanners, stray multicast). Anything that
   doesn't parse is dropped silently.
 
 What this does not defend against:
 
-- An on-path attacker on Alice's LAN segment who can read her UDP traffic.
-  They see her `(sourceIP, sourcePort)`, can spoof packets that carry that
-  source address back at the server, and the pin will accept them. This is
-  the same threat-model floor the rest of the protocol sits on today before
-  TLS lands; cursor spoofing is annoying (a wiggling Alice-cursor on Bob's
-  canvas) and not destructive (no draw, no undo, no chat — those still go
-  over the authenticated TCP channel).
+- Any on-LAN observer hijacking another user's cursor binding. The pin
+  always rebinds to the latest fresh-seq frame from a new endpoint, so
+  an attacker who knows Alice's UserId and beats one of her real frames
+  by a packet steals the binding for one fanout cycle. Alice's next
+  frame steals it back. This is the same threat-model floor the rest of
+  the protocol sits on today before TLS lands; cursor spoofing is
+  annoying (a wiggling Alice-cursor on Bob's canvas) and not destructive
+  (no draw, no undo, no chat — those still go over the authenticated TCP
+  channel). An off-path attacker who cannot read Alice's packets has no
+  easier time than guessing her current `seq`, which is a 32-bit counter
+  they cannot observe.
 - Any kind of session takeover. UDP carries no session token by design;
   draws and chat are unaffected by anything that happens on the UDP path.
 - DTLS or wire encryption. UDP is plaintext. The `tls-in-house.md` design
@@ -87,8 +86,11 @@ Field-by-field:
 - `senderId` — `uint32 BE`, parsed from the existing 8-hex-char `UserId`
   via `Convert.ToUInt32(userId, 16)`. The 8-char IDs come from
   `Guid.NewGuid().ToString("N")[..8]` (see `NetworkService.cs:38`), which
-  fits exactly in 32 bits. No collision worry at room scale (10 users × N
-  rooms; birthday collision among ≤10 random uint32s is ~10⁻⁸).
+  fits exactly in 32 bits. The collision space that matters is "how many
+  concurrent users one backend's `_bindings` dictionary holds" — at a few
+  thousand concurrent users per backend the birthday probability stays
+  under 10⁻³, which is fine for a binding key the server can refresh on
+  reconnect.
 - `roomHash` — `uint32 BE`, computed as `XxHash32.Hash(UTF8(NFC(roomId)))`
   using the same `NetDraw.Shared/Util/XxHash32.cs` the LB design adds. The
   server compares this against the room the sender's UserId is bound to and
@@ -97,11 +99,14 @@ Field-by-field:
   catching client bugs where the user switches rooms on TCP but the UDP
   socket forgets to update.
 - `seq` — `uint32 BE`. Per-sender monotonic counter starting at 0 on UDP
-  socket open. Receivers (server fanout, clients reading the rebroadcast)
-  drop any frame whose `seq` is `<=` the last seen for that sender. This
-  handles UDP reordering (rare on LAN but real) so a stale cursor position
-  doesn't appear ahead of a newer one. Wraps at 2³² ≈ 4.3 billion frames,
-  which at 20 Hz is ~6.8 years per session — not a real concern.
+  socket open. The server drops any frame whose `seq` is `<=` the last
+  seen for that sender at the same endpoint, which handles UDP
+  reordering (rare on LAN but real) so a stale cursor position doesn't
+  fan out ahead of a newer one. Clients reading the rebroadcast do *not*
+  re-check `seq` — server-side dedup is enough for correctness on LAN,
+  and reordering of the server's fan-out hops to N peers is independent
+  per peer anyway. Wraps at 2³² ≈ 4.3 billion frames, which at 20 Hz is
+  ~6.8 years per session — not a real concern.
 - `x`, `y` — `uint16 BE`, canvas pixel coordinates. The existing canvas is
   3000 × 2000 (`Program.cs:55` hard-codes those for the AI parser too), so
   uint16 has 21× headroom on each axis. Sender clamps to `[0, 3000)` and
@@ -149,6 +154,19 @@ service.RunAsync(cts.Token))` against the existing process cancellation
 token. One UDP socket on the configured port (default = same as TCP), one
 read loop, fanout via the existing `IRoomService`.
 
+A note for the nervous reader: TCP and UDP listeners on the same port
+number do not collide — they live in distinct protocol tables in the
+kernel, so the two `bind(2)` calls succeed independently. Sharing port
+5000 between the TCP `DrawServer` listener and the UDP cursor socket is
+two separate sockets, not one socket multiplexed; do not try to share a
+`Socket` instance between them.
+
+Address-family note: the bind below is IPv4-only (`IPAddress.Any` ==
+`0.0.0.0`). On a dual-stack host the v6 path is silently absent. IPv6 is
+out of scope for this design (see "Out of scope"), so this is fine —
+just stating it explicitly because it doesn't match the TCP listener's
+default behaviour on every platform.
+
 ```csharp
 public class UdpCursorService
 {
@@ -162,7 +180,11 @@ public class UdpCursorService
 
     public async Task RunAsync(CancellationToken ct)
     {
-        using var udp = new UdpClient(_port); // binds 0.0.0.0:5000/UDP
+        // Bind to a specific local IPv4 if UDP_CURSOR_PUBLIC_HOST is set, so the
+        // egress source IP for fanout matches what RoomJoinedPayload advertised.
+        // Falls back to IPAddress.Any (IPv4 0.0.0.0) for the single-NIC default.
+        var bindAddr = ResolveBindAddress(); // IPAddress.Parse(UDP_CURSOR_PUBLIC_HOST) ?? IPAddress.Any
+        using var udp = new UdpClient(new IPEndPoint(bindAddr, _port));
         var buf = new byte[64]; // 24-byte payload + slack; anything bigger we drop
 
         while (!ct.IsCancellationRequested)
@@ -180,6 +202,7 @@ public class UdpCursorService
             if (roomId is null) continue;
             if (XxHash32.Hash(Encoding.UTF8.GetBytes(roomId)) != frame.RoomHash) continue;
 
+            var freshlyPinned = !_bindings.ContainsKey(frame.SenderId);
             var binding = _bindings.AddOrUpdate(frame.SenderId,
                 _ => new CursorBinding(result.RemoteEndPoint, frame.Seq, roomId),
                 (_, b) =>
@@ -189,6 +212,10 @@ public class UdpCursorService
                     return new CursorBinding(result.RemoteEndPoint, frame.Seq, roomId);
                 });
             if (binding.LastSeq != frame.Seq) continue; // we dropped this frame above
+
+            // First UDP frame from this client → tell them on TCP that we heard them.
+            // Used by CursorTransport to cancel the 2 s fallback timer.
+            if (freshlyPinned) sender.EnqueueTcp(NetMessage.Create(MessageType.UdpPinConfirmed));
 
             await FanOutAsync(udp, frame, roomId, sender);
         }
@@ -230,6 +257,13 @@ deleted**. It stays wired up so that:
 The handler does become a fallback in the design narrative — under normal
 operation no real client should fire it once UDP is up — but the code
 stays.
+
+When `PresenceHandler` receives a `CursorMove` over TCP for a sender
+whose `senderId` already has an entry in `_bindings`, it removes the
+entry. That client has fallen back to TCP, so continuing to fan their
+peers' frames at their old UDP endpoint just fires packets into a black
+hole until the 30 s GC. One dictionary remove is cheaper than waiting
+for the prune.
 
 Per-source rate cap: the service drops any frame from an `(IP, port)` pair
 that exceeds 60 frames/sec (3× the design rate). This is a defensive
@@ -295,8 +329,8 @@ public class CursorTransport : IDisposable
     private readonly uint _roomHash;
     private uint _seq;
 
-    private DateTime _lastInboundUdp;
-    private bool _udpHealthy = true; // optimistic; flips on the 2 s timeout
+    private CancellationTokenSource? _pinTimer;
+    private bool _udpHealthy = true; // optimistic; flips when pin timer fires
 
     public CursorTransport(INetworkService tcp, string udpHost, int udpPort,
                            string userId, string roomId)
@@ -305,8 +339,9 @@ public class CursorTransport : IDisposable
         _serverEndpoint = new IPEndPoint(IPAddress.Parse(udpHost), udpPort);
         _senderId = Convert.ToUInt32(userId, 16);
         _roomHash = XxHash32.Hash(Encoding.UTF8.GetBytes(roomId));
-        _lastInboundUdp = DateTime.UtcNow; // grace period before fallback decision
         _ = Task.Run(ListenAsync);
+        // OnUdpPinConfirmed (called from the TCP dispatcher when the
+        // server's UdpPinConfirmed frame arrives) cancels _pinTimer.
     }
 
     public void Send(double x, double y, string colorHex)
@@ -317,6 +352,7 @@ public class CursorTransport : IDisposable
                 ClampX(x), ClampY(y), colorHex);
             try { _udp.Send(buf, buf.Length, _serverEndpoint); }
             catch (SocketException) { _udpHealthy = false; }
+            ArmPinTimerIfFirstSend();
         }
         else
         {
@@ -326,6 +362,8 @@ public class CursorTransport : IDisposable
         }
     }
 
+    public void OnUdpPinConfirmed() => _pinTimer?.Cancel();
+
     private async Task ListenAsync()
     {
         while (!_disposed)
@@ -333,7 +371,6 @@ public class CursorTransport : IDisposable
             var result = await _udp.ReceiveAsync();
             if (!CursorFrame.TryParse(result.Buffer, out var f)) continue;
             if (f.SenderId == _senderId) continue; // server shouldn't echo, but defend
-            _lastInboundUdp = DateTime.UtcNow;
             // hand to RemotePresenceManager via the same dispatcher path TCP uses
             _onCursorReceived(f);
         }
@@ -350,13 +387,13 @@ The `OnCursorReceived` callback hands the frame up to the same
 to the WPF dispatcher. `RemotePresenceManager.UpdateCursor` doesn't care
 whether the values came from a JSON `CursorPayload` or a binary frame.
 
-The fallback decision lives in a one-shot timer set when `CursorTransport`
-is constructed: if the room has ≥ 2 users (per `RoomJoinedPayload.Users`)
-and `_lastInboundUdp` hasn't advanced after 2 seconds of the user
-actively moving the mouse, flip `_udpHealthy = false` and log once. The
-TCP fallback is the existing path verbatim — no new server work, since
-`PresenceHandler` is still listening for `MessageType.CursorMove` over
-TCP.
+The fallback decision lives in a one-shot timer armed on the
+client's *first* UDP `Send`: if no `MessageType.UdpPinConfirmed` arrives
+on TCP within 2 seconds, flip `_udpHealthy = false` and log once. The
+TCP fallback is the existing path verbatim — `PresenceHandler` is
+still listening for `MessageType.CursorMove` and now also drops the
+sender's UDP binding when it sees that fallback frame, so peers stop
+fanning out to the dead endpoint.
 
 `CursorFrame.Build` and `CursorFrame.TryParse` are static helpers in
 `NetDraw.Shared/Protocol/Udp/CursorFrame.cs` (new file), shared between
@@ -415,35 +452,30 @@ Three failure modes the client must handle:
    to other peers) but inbound UDP back to the client is dropped (NAT
    timeout, Wi-Fi AP isolation between two laptops on the same SSID).
    The client is sending cursor data successfully and others see it move,
-   but the client never sees other people's cursors over UDP. Detection:
-   if the room has ≥ 2 users at `JoinRoom` time and 2 seconds have
-   passed since the local mouse first moved with no inbound UDP frame
-   landing in `ListenAsync`, flip to TCP. The server's fanout will keep
-   delivering to every other client over UDP — only this client switches
-   sides.
+   but the client never sees other people's cursors over UDP. Detection
+   uses a *server-driven* signal rather than guessing from inbound
+   frames: when the server pins this client's UDP binding for the first
+   time (the very first valid UDP frame that updates `_bindings`), it
+   sends a one-shot `MessageType.UdpPinConfirmed` over the same client's
+   TCP connection. The client clears the fallback timer on receipt. If
+   no `UdpPinConfirmed` arrives within 2 seconds of `CursorTransport`
+   starting to send, flip to TCP. This works even in 2-user rooms where
+   the peer happens to be silent — health is "did the server hear me",
+   not "is the peer also moving".
 
-The 2-second window is a single `DispatcherTimer` started at
-`CursorTransport` construction (not on first `Send`). If at the 2 s mark
-the room is ≥ 2 users, `_lastInboundUdp` is unchanged, AND the user has
-moved the mouse at least once (so we know they're an active participant
-who would expect to be seen), flip. Single-user rooms are exempt —
-there's nothing to receive, so a missing inbound UDP signal is
-meaningless.
+The 2-second window is a single `DispatcherTimer` armed when
+`CursorTransport` sends its first UDP frame. The timer is cancelled when
+the TCP-side `UdpPinConfirmed` arrives; otherwise it fires and the
+client flips to TCP. A freshly-joined silent observer never sends a UDP
+frame, so the timer never arms and the server never pins their
+endpoint — they see no cursors until their first wiggle, which matches
+the existing "presence only when active" behaviour on TCP today. Their
+first mouse-move starts the timer, and either gets confirmed or gets
+them onto the TCP fallback within 2 seconds.
 
-The "active participant" check matters because a freshly-joined silent
-observer never sends a UDP frame, so the server never pins their endpoint
-and never fans out other people's cursors to them. A pure observer who
-opens NetDraw and never touches the mouse therefore sees no cursors at
-all — which matches the existing "presence only when active" behaviour
-on TCP today (the TCP path also broadcasts cursor only on `MouseMove`
-events). The fallback timer triggers as soon as the observer moves, so
-their first wiggle gets them onto the TCP fallback if UDP is broken
-inbound. Owned, not fixed: this is the right behaviour for the
-"who's actively present" use case.
-
-There is no probe message, no UDP "ping" the server has to respond to.
-The signal is "are real cursor frames flowing back to me", which is what
-we actually need to know.
+There is no UDP "ping" — the signal is one TCP frame from server to
+client, sent at most once per `CursorTransport` lifetime, piggy-backed
+on the connection that already exists.
 
 Once the client falls back to TCP, it stays on TCP for the rest of that
 room session. A future room-rejoin (TCP `LeaveRoom` + new `JoinRoom`)
@@ -491,6 +523,14 @@ demo (3 backends on `127.0.0.1`) it's `127.0.0.1` everywhere; for a
 multi-host deploy it's each backend's LAN IP. The LB design's
 "Out of scope" already says the LB doesn't do UDP; this design just
 formalizes who does.
+
+When multiple backends share one host (the localhost demo case), they
+cannot all bind the same UDP port — a second `bind(2)` on
+`127.0.0.1:5000/UDP` fails with `EADDRINUSE`. So each backend on a
+shared host MUST set `UDP_CURSOR_PORT` to a distinct value (e.g.,
+`5000+k` to mirror the LB walkthrough's `udpPort: 5000+k`). On a
+multi-host deploy where every backend has its own NIC, sharing port
+5000 across backends is fine and the env var can stay unset.
 
 Consequence: if a client falls back to TCP cursor (firewall blocks
 outbound UDP to the backend's IP, or backend's IP isn't routable from
@@ -564,11 +604,15 @@ path. Manual test: 2 clients in one room, drag the mouse, run
 `tcpdump -i lo 'port 5000' -X` and see UDP frames with the `'N','D'`
 magic. Estimate: 3 days for a junior dev.
 
-**Phase 2 (S) — Fallback timer + automatic switchover.** Implement the
-2-second inbound-UDP watchdog in `CursorTransport`. Test by binding a
-firewall rule that drops outbound UDP from one client only (`iptables
--A OUTPUT -p udp --dport 5000 -j DROP`) and observing that client falls
-back to TCP while peers stay on UDP. Estimate: 1 day.
+**Phase 2 (S) — Fallback timer + automatic switchover.** Add
+`MessageType.UdpPinConfirmed` to the protocol enum, emit it from
+`UdpCursorService` on first pin, handle it on the client to cancel the
+2-second timer in `CursorTransport`. Implement the server-side cleanup
+in `PresenceHandler` (drop UDP binding when a client returns to TCP
+`CursorMove`). Test by adding a firewall rule that drops outbound UDP
+from one client only (`iptables -A OUTPUT -p udp --dport 5000 -j DROP`)
+and observing that client falls back to TCP while peers stay on UDP.
+Estimate: 1 day.
 
 **Phase 3 (M) — Per-source rate cap + binding GC.** The
 `UdpCursorService` accepts every well-formed frame in Phase 1; Phase 3
@@ -599,11 +643,17 @@ An experienced dev gets through Phases 1+2 in two days.
    it doesn't fit a 24-byte binary frame; it'd need its own format.
    Recommend separate design pass once cursor ships and we have real
    measurements; don't ride this PR.
-3. **Multi-NIC server source IP.** Bind to `0.0.0.0:5000/UDP` accepts
-   on any interface, but the fanout source IP is whatever the OS routing
-   table picks. For multi-NIC backends behind an LB this can desync
-   from `UDP_CURSOR_PUBLIC_HOST` and the client may reject the inbound.
-   Recommend punt — single-NIC is the demo case; revisit if it bites.
+3. **Multi-NIC server source IP.** *Resolved.* When
+   `UDP_CURSOR_PUBLIC_HOST` is set, the UDP socket binds to that
+   specific IP (not `0.0.0.0`), so the OS picks that address as the
+   egress source for fanout and it matches what `RoomJoinedPayload`
+   advertised. Same surface that bit LAN-discovery in PR #21 (WiFi
+   vs Hyper-V/WSL vEthernet on a student laptop): the operator's
+   single env var pins both advertised host and bind address. On a
+   multi-NIC host the env var is effectively mandatory — the unset
+   default falls back to `0.0.0.0` and the OS routing table picks
+   the egress IP, which is exactly the desync PR #21 patched on the
+   beacon side.
 4. **Client UDP source-port stability.** A `new UdpClient()` binds an
    ephemeral port; we rely on the OS not changing it for the socket's
    lifetime (Windows and Linux do not, but worth confirming on the WPF
