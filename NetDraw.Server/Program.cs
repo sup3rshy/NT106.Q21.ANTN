@@ -78,6 +78,32 @@ var healthCts = new CancellationTokenSource();
 AppDomain.CurrentDomain.ProcessExit += (_, _) => { healthCts.Cancel(); healthCts.Dispose(); };
 _ = Task.Run(() => healthServer.RunAsync(healthCts.Token));
 
+// LAN discovery beacon — opt-out via LAN_DISCOVERY_DISABLE=1. Multicast group/port/interval
+// override mirrors LOG_LEVEL: env vars only, no positional CLI shift.
+CancellationTokenSource? beaconCts = null;
+if (Environment.GetEnvironmentVariable("LAN_DISCOVERY_DISABLE") == "1")
+{
+    startupLogger.LogInformation("LAN discovery beacon: disabled (LAN_DISCOVERY_DISABLE=1)");
+}
+else
+{
+    var beaconGroup = Environment.GetEnvironmentVariable("LAN_BEACON_GROUP") ?? "239.255.77.12";
+    var beaconPort = ReadIntEnv("LAN_BEACON_PORT", 5099, min: 1, max: 65535);
+    var beaconIntervalSec = ReadIntEnv("LAN_BEACON_INTERVAL_SEC", 2, min: 1, max: 3600);
+    var beaconName = Environment.GetEnvironmentVariable("BEACON_NAME");
+    var beacon = new BeaconService(roomService, port,
+        loggerFactory.CreateLogger<BeaconService>(),
+        group: beaconGroup,
+        port: beaconPort,
+        intervalMs: beaconIntervalSec * 1000,
+        name: beaconName);
+    beaconCts = new CancellationTokenSource();
+    var capturedCts = beaconCts;
+    AppDomain.CurrentDomain.ProcessExit += (_, _) => { try { capturedCts.Cancel(); capturedCts.Dispose(); } catch { } };
+    _ = Task.Run(() => beacon.RunAsync(beaconCts.Token));
+    startupLogger.LogInformation("LAN discovery beacon: {Group}:{Port} every {IntervalSec}s", beaconGroup, beaconPort, beaconIntervalSec);
+}
+
 // Start server
 var server = new DrawServer(port, dispatcher, clientRegistry, roomService, rateLimiter, loggerFactory);
 startupLogger.LogInformation("Starting on port {Port}", port);
