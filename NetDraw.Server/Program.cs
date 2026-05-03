@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using NetDraw.Server;
 using NetDraw.Server.Ai;
 using NetDraw.Server.Handlers;
@@ -14,36 +15,61 @@ string? apiKey = (args.Length > 1 ? args[1] : null)
 // Locate NetDraw.McpServer.csproj by walking up from the server binary directory.
 string? mcpProjectPath = ResolveMcpProjectPath();
 
+// LOG_LEVEL must be a named LogLevel (e.g. "Warning"). Numeric strings parse but produce unmapped
+// values that silently disable all logging.
+var rawLevel = Environment.GetEnvironmentVariable("LOG_LEVEL");
+LogLevel minLevel = LogLevel.Information;
+if (!string.IsNullOrWhiteSpace(rawLevel))
+{
+    if (Enum.TryParse<LogLevel>(rawLevel, ignoreCase: true, out var lvl) && Enum.IsDefined(typeof(LogLevel), lvl))
+        minLevel = lvl;
+    else
+        Console.Error.WriteLine($"[Startup] LOG_LEVEL={LogHelper.SanitizeForLog(rawLevel, 40)} is not a valid LogLevel name; defaulting to Information.");
+}
+
+using var loggerFactory = LoggerFactory.Create(builder =>
+{
+    builder.SetMinimumLevel(minLevel);
+    builder.AddSimpleConsole(o =>
+    {
+        o.SingleLine = true;
+        o.IncludeScopes = false;
+        o.TimestampFormat = "HH:mm:ss.fff ";
+    });
+});
+
+var startupLogger = loggerFactory.CreateLogger("NetDraw.Startup");
+
 // Services
 var clientRegistry = new ClientRegistry();
 var roomService = new RoomService();
 // Canvas dimensions must match the client's DrawCanvas (MainWindow.xaml) — currently 3000×2000.
 // Claude uses these numbers to pick sensible (cx, cy, size) params; if they mismatch, every
 // drawing lands in the wrong place on the real canvas.
-var mcpClient = new McpClient(apiKey, mcpProjectPath, canvasWidth: 3000, canvasHeight: 2000);
+var mcpClient = new McpClient(apiKey, mcpProjectPath, loggerFactory.CreateLogger<McpClient>(), canvasWidth: 3000, canvasHeight: 2000);
 var fallbackParser = new FallbackAiParser();
 
 // Start MCP connection in background
 _ = Task.Run(async () =>
 {
     try { await mcpClient.ConnectAsync(); }
-    catch (Exception ex) { Console.WriteLine($"[MCP] Background connect failed: {ex.Message}"); }
+    catch (Exception ex) { startupLogger.LogError(ex, "MCP background connect failed"); }
 });
 
 // Pipeline
-var dispatcher = new MessageDispatcher();
+var dispatcher = new MessageDispatcher(loggerFactory.CreateLogger<MessageDispatcher>());
 dispatcher.Register(new RoomHandler(roomService, clientRegistry));
 dispatcher.Register(new DrawHandler(roomService));
 dispatcher.Register(new ObjectHandler(roomService));
 dispatcher.Register(new PresenceHandler(roomService));
 dispatcher.Register(new ChatHandler(roomService));
-dispatcher.Register(new AiHandler(roomService, mcpClient, fallbackParser));
+dispatcher.Register(new AiHandler(roomService, mcpClient, fallbackParser, loggerFactory.CreateLogger<AiHandler>()));
 
 // Start server
-var server = new DrawServer(port, dispatcher, clientRegistry, roomService);
-Console.WriteLine($"[NetDraw Server] Starting on port {port}...");
-Console.WriteLine($"[NetDraw Server] Claude API key: {(string.IsNullOrWhiteSpace(apiKey) ? "(none — fallback parser only)" : "present")}");
-Console.WriteLine($"[NetDraw Server] MCP project:    {mcpProjectPath ?? "(not found)"}");
+var server = new DrawServer(port, dispatcher, clientRegistry, roomService, loggerFactory);
+startupLogger.LogInformation("Starting on port {Port}", port);
+startupLogger.LogInformation("Claude API key: {KeyStatus}", string.IsNullOrWhiteSpace(apiKey) ? "(none — fallback parser only)" : "present");
+startupLogger.LogInformation("MCP project: {McpProjectPath}", mcpProjectPath ?? "(not found)");
 await server.StartAsync();
 
 static string? ResolveMcpProjectPath()

@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using NetDraw.Shared.Protocol;
 using NetDraw.Shared.Protocol.Payloads;
 using Newtonsoft.Json.Linq;
@@ -12,6 +13,7 @@ public class ClientHandler
     private readonly NetworkStream _stream;
     private readonly StringBuilder _buffer = new();
     private readonly SemaphoreSlim _writeLock = new(1, 1);
+    private readonly ILogger<ClientHandler> _logger;
     private bool _isConnected = true;
     private int _tornDown;
 
@@ -22,16 +24,17 @@ public class ClientHandler
     public event Func<ClientHandler, MessageType, string, string, string, JObject?, Task>? MessageReceived;
     public event Func<ClientHandler, Task>? Disconnected;
 
-    public ClientHandler(TcpClient tcpClient)
+    public ClientHandler(TcpClient tcpClient, ILogger<ClientHandler> logger)
     {
         _tcpClient = tcpClient;
         _stream = tcpClient.GetStream();
+        _logger = logger;
     }
 
     public async Task ListenAsync()
     {
         var endpoint = _tcpClient.Client.RemoteEndPoint?.ToString() ?? "unknown";
-        Console.WriteLine($"[+] Client connected from {endpoint}");
+        _logger.LogInformation("Client connected from {Endpoint}", endpoint);
 
         try
         {
@@ -50,9 +53,13 @@ public class ClientHandler
                 await ProcessBufferAsync();
             }
         }
+        catch (Exception ex) when (ex is IOException or System.Net.Sockets.SocketException or ObjectDisposedException)
+        {
+            _logger.LogInformation("Client {UserId} disconnected: {Reason}", UserId, ex.Message);
+        }
         catch (Exception ex)
         {
-            Console.WriteLine($"[!] Client {UserId} error: {ex.Message}");
+            _logger.LogWarning(ex, "Client {UserId} read loop ended with unexpected error", UserId);
         }
         finally
         {
@@ -95,7 +102,7 @@ public class ClientHandler
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException)
         {
-            Console.WriteLine($"[!] Send to {UserId} failed: {ex.GetType().Name}: {ex.Message}");
+            _logger.LogWarning("Send to {UserId} failed: {ExceptionType}: {Error}", UserId, ex.GetType().Name, ex.Message);
             fatal = true;
         }
         finally { _writeLock.Release(); }

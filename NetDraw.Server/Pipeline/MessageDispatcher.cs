@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using NetDraw.Shared.Protocol;
 using Newtonsoft.Json.Linq;
 
@@ -6,6 +7,12 @@ namespace NetDraw.Server.Pipeline;
 public class MessageDispatcher
 {
     private readonly List<IMessageHandler> _handlers = new();
+    private readonly ILogger<MessageDispatcher> _logger;
+
+    public MessageDispatcher(ILogger<MessageDispatcher> logger)
+    {
+        _logger = logger;
+    }
 
     public void Register(IMessageHandler handler)
     {
@@ -21,7 +28,7 @@ public class MessageDispatcher
         }
         else
         {
-            Console.WriteLine($"[!] No handler for message type: {type}");
+            _logger.LogWarning("No handler for message type {MessageType} from {SenderId}", type, senderId);
         }
     }
 }
