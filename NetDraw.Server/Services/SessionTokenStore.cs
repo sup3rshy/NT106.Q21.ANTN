@@ -26,6 +26,7 @@ public interface ISessionTokenStore
     void RecordRoom(ClientHandler handler, string roomId);
     bool MarkOrphaned(ClientHandler handler);
     bool TryClaim(string token, ClientHandler newHandler, out string userId, out string? lastRoomId);
+    void Remove(string token);
     SessionEntry? Get(string token);
 }
 
