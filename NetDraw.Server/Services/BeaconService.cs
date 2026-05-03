@@ -104,9 +104,9 @@ public class BeaconService
     }
 
     // Exposed for tests — assert wire shape without binding a socket.
-    internal string SerializeBeacon() => JsonConvert.SerializeObject(BuildBeacon());
+    public string SerializeBeacon() => JsonConvert.SerializeObject(BuildBeacon());
 
-    internal BeaconV1 BuildBeacon()
+    public BeaconV1 BuildBeacon()
     {
         var infos = _rooms.GetAllRoomInfos();
         int clients = infos.Sum(r => r.UserCount);
