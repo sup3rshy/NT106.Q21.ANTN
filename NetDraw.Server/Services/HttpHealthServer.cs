@@ -10,12 +10,15 @@ public class HttpHealthServer
     private readonly int _port;
     private readonly IRoomService _roomService;
     private readonly DateTimeOffset _startedAt;
+    private readonly SemaphoreSlim _concurrencyLimit;
 
-    public HttpHealthServer(int port, IRoomService roomService)
+    public HttpHealthServer(int port, IRoomService roomService, int maxConcurrent = 16)
     {
+        if (maxConcurrent < 1) throw new ArgumentOutOfRangeException(nameof(maxConcurrent));
         _port = port;
         _roomService = roomService;
         _startedAt = DateTimeOffset.UtcNow;
+        _concurrencyLimit = new SemaphoreSlim(maxConcurrent, maxConcurrent);
     }
 
     public async Task RunAsync(CancellationToken ct)
@@ -52,7 +55,17 @@ public class HttpHealthServer
             catch (ObjectDisposedException) { break; }
             catch (HttpListenerException) { break; }
 
-            _ = Task.Run(() => HandleAsync(ctx));
+            _ = Task.Run(async () =>
+            {
+                if (!await _concurrencyLimit.WaitAsync(0))
+                {
+                    try { await WriteAsync(ctx, 503, "text/plain", "Busy"); }
+                    catch { try { ctx.Response.Abort(); } catch { } }
+                    return;
+                }
+                try { await HandleAsync(ctx); }
+                finally { _concurrencyLimit.Release(); }
+            });
         }
 
         try { listener.Close(); } catch { }
