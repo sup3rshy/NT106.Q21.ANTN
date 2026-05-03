@@ -39,23 +39,15 @@ public class RoomHandler : IMessageHandler
 
     private async Task HandleJoinAsync(string senderId, string senderName, string roomId, ClientHandler sender)
     {
-        // If client is already in a room, leave it first so they don't appear in two rooms
-        // or duplicate within the same room when re-joining.
         var previousRoomId = _roomService.GetRoomIdForClient(sender);
-        if (previousRoomId != null)
-        {
-            _roomService.RemoveUserFromRoom(sender);
-            var leftMsg = NetMessage<UserPayload>.Create(
-                MessageType.UserLeft, senderId, sender.UserName, previousRoomId,
-                new UserPayload { User = new UserInfo { UserId = senderId, UserName = sender.UserName } });
-            await _roomService.BroadcastToRoomAsync(previousRoomId, leftMsg);
-        }
 
         sender.UserId = senderId;
         sender.UserName = senderName;
         // AddUserToRoom mutates user.Color (and sender.UserColor) to a per-room unique value.
         var user = new UserInfo { UserId = senderId, UserName = senderName };
 
+        // Try the new room first. On failure the client stays in their previous room
+        // (if any) instead of being orphaned by a premature leave + UserLeft broadcast.
         var joinResult = _roomService.AddUserToRoom(roomId, sender, user);
         if (joinResult != JoinResult.Ok)
         {
@@ -70,6 +62,18 @@ public class RoomHandler : IMessageHandler
                 new ErrorPayload { Message = reason });
             await sender.SendAsync(errorMsg);
             return;
+        }
+
+        // Joined new room. If we were in a different room before, leave it now.
+        // AddUserToRoom already overwrote _clientRooms[sender] to the new id, so we
+        // must remove from the previous room directly rather than via RemoveUserFromRoom.
+        if (previousRoomId != null && previousRoomId != roomId)
+        {
+            _roomService.GetRoom(previousRoomId)?.RemoveClient(sender);
+            var leftMsg = NetMessage<UserPayload>.Create(
+                MessageType.UserLeft, senderId, sender.UserName, previousRoomId,
+                new UserPayload { User = new UserInfo { UserId = senderId, UserName = sender.UserName } });
+            await _roomService.BroadcastToRoomAsync(previousRoomId, leftMsg);
         }
 
         _clientRegistry.Register(senderId, sender);
