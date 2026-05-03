@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Input;
 using NetDraw.Client.Drawing;
@@ -15,6 +16,10 @@ public class MainViewModel : ViewModelBase
     public readonly INetworkService Network;
     private readonly IFileService _fileService;
     private readonly EventAggregator _events;
+    private readonly DiscoveryService? _discovery;
+    private readonly ServerCache? _serverCache;
+
+    public ObservableCollection<DiscoveredServer> DiscoveredServers { get; } = new();
 
     private bool _isConnected;
     private string _serverHost = "127.0.0.1";
@@ -38,11 +43,14 @@ public class MainViewModel : ViewModelBase
     public ICommand ConnectCommand { get; }
     public ICommand JoinRoomCommand { get; }
 
-    public MainViewModel(INetworkService network, IFileService fileService, HistoryManager history, EventAggregator events)
+    public MainViewModel(INetworkService network, IFileService fileService, HistoryManager history, EventAggregator events,
+                         DiscoveryService? discovery = null, ServerCache? serverCache = null)
     {
         Network = network;
         _fileService = fileService;
         _events = events;
+        _discovery = discovery;
+        _serverCache = serverCache;
 
         Toolbar = new ToolbarViewModel(events);
         Canvas = new CanvasViewModel(network, history, Toolbar, events);
@@ -58,6 +66,46 @@ public class MainViewModel : ViewModelBase
             IsConnected = false;
             StatusText = reason;
         });
+
+        // Pre-populate from cache so the dropdown isn't empty on launch — beacons may be 2s away.
+        if (_serverCache != null)
+        {
+            foreach (var entry in _serverCache.All)
+            {
+                DiscoveredServers.Add(new DiscoveredServer(
+                    ServerId: entry.ServerId,
+                    Name: entry.Name,
+                    Host: entry.Host,
+                    Port: entry.Port,
+                    AppVersion: entry.AppVersion,
+                    Rooms: 0,
+                    Clients: 0,
+                    MaxClients: 0,
+                    LastSeen: entry.LastSeenUtc));
+            }
+        }
+
+        if (_discovery != null)
+        {
+            _discovery.ServerDiscovered += server =>
+            {
+                _serverCache?.RecordDiscovery(server);
+                Application.Current?.Dispatcher.BeginInvoke(new Action(() => MergeDiscoveredServer(server)));
+            };
+        }
+    }
+
+    private void MergeDiscoveredServer(DiscoveredServer server)
+    {
+        for (int i = 0; i < DiscoveredServers.Count; i++)
+        {
+            if (string.Equals(DiscoveredServers[i].ServerId, server.ServerId, StringComparison.OrdinalIgnoreCase))
+            {
+                DiscoveredServers[i] = server;
+                return;
+            }
+        }
+        DiscoveredServers.Add(server);
     }
 
     private async Task ToggleConnectAsync()

@@ -37,9 +37,18 @@ public partial class App : Application
         var historyManager = new HistoryManager();
         var renderer = new WpfCanvasRenderer();
 
-        var mainVm = new MainViewModel(networkService, fileService, historyManager, events);
+        Action<string> diagLog = msg => System.IO.File.AppendAllText(logFile, $"{DateTime.Now}: {msg}\n");
+
+        var serverCache = new ServerCache(log: diagLog);
+        serverCache.Load();
+
+        var discovery = new DiscoveryService(log: diagLog);
+        discovery.Start();
+
+        var mainVm = new MainViewModel(networkService, fileService, historyManager, events, discovery, serverCache);
 
         var mainWindow = new MainWindow(mainVm, renderer, historyManager, events);
+        mainWindow.Closed += (_, _) => discovery.Dispose();
         mainWindow.Show();
     }
 }

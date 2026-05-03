@@ -487,11 +487,26 @@
                     <TextBlock Text="KẾT NỐI" Style="{StaticResource SectionLabel}"/>
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="80"/></Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
-                        <TextBox x:Name="TxtServerIp" Grid.Row="0" Grid.ColumnSpan="2" Text="127.0.0.1" Style="{StaticResource InputBox}" Margin="0,0,0,6"/>
-                        <TextBox x:Name="TxtPort" Grid.Row="1" Grid.Column="0" Text="5000" Style="{StaticResource InputBox}" Margin="0,0,4,6"/>
-                        <TextBox x:Name="TxtUserName" Grid.Row="1" Grid.Column="1" Text="" Style="{StaticResource InputBox}" Margin="0,0,0,6" ToolTip="Tên"/>
-                        <Button x:Name="BtnConnect" Grid.Row="2" Grid.ColumnSpan="2" Content="Kết nối" Style="{StaticResource AccentBtn}" Background="#A6E3A1" Height="32" Click="BtnConnect_Click"/>
+                        <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                        <ComboBox x:Name="CmbDiscovered" Grid.Row="0" Grid.ColumnSpan="2"
+                                  ItemsSource="{Binding DiscoveredServers}"
+                                  SelectionChanged="CmbDiscovered_SelectionChanged"
+                                  Margin="0,0,0,6" Padding="6,3" FontSize="11"
+                                  ToolTip="Servers seen on the LAN (UDP multicast)">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock>
+                                        <Run Text="{Binding Name, Mode=OneWay}" FontWeight="SemiBold"/>
+                                        <Run Text=" — "/>
+                                        <Run Text="{Binding Host, Mode=OneWay}"/><Run Text=":"/><Run Text="{Binding Port, Mode=OneWay}"/>
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                        <TextBox x:Name="TxtServerIp" Grid.Row="1" Grid.ColumnSpan="2" Text="127.0.0.1" Style="{StaticResource InputBox}" Margin="0,0,0,6"/>
+                        <TextBox x:Name="TxtPort" Grid.Row="2" Grid.Column="0" Text="5000" Style="{StaticResource InputBox}" Margin="0,0,4,6"/>
+                        <TextBox x:Name="TxtUserName" Grid.Row="2" Grid.Column="1" Text="" Style="{StaticResource InputBox}" Margin="0,0,0,6" ToolTip="Tên"/>
+                        <Button x:Name="BtnConnect" Grid.Row="3" Grid.ColumnSpan="2" Content="Kết nối" Style="{StaticResource AccentBtn}" Background="#A6E3A1" Height="32" Click="BtnConnect_Click"/>
                     </Grid>
                 </StackPanel>
 
