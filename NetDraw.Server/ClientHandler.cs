@@ -42,12 +42,18 @@ public class ClientHandler
         try
         {
             byte[] buffer = new byte[8192];
+            char[] charBuffer = new char[8192];
+            // Stateful decoder: keeps trailing bytes of an incomplete UTF-8 sequence between reads.
+            // Without this, a multi-byte char split across two ReadAsync calls becomes "?" garbage —
+            // breaks Vietnamese diacritics in long messages.
+            var decoder = Encoding.UTF8.GetDecoder();
             while (_isConnected && _tcpClient.Connected)
             {
                 int bytesRead = await _stream.ReadAsync(buffer, 0, buffer.Length);
                 if (bytesRead == 0) break;
 
-                _buffer.Append(Encoding.UTF8.GetString(buffer, 0, bytesRead));
+                int charsDecoded = decoder.GetChars(buffer, 0, bytesRead, charBuffer, 0);
+                _buffer.Append(charBuffer, 0, charsDecoded);
                 await ProcessBufferAsync();
             }
         }
