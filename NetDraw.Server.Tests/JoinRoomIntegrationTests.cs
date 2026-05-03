@@ -64,6 +64,11 @@ public class JoinRoomIntegrationTests
         finally
         {
             await server.StopAsync();
+            // Surface accept-loop faults that a discarded serverTask would otherwise swallow
+            // into an unobserved task exception (port collision, startup throw, etc).
+            var done = await Task.WhenAny(serverTask, Task.Delay(500));
+            if (done == serverTask && serverTask.IsFaulted)
+                throw new Xunit.Sdk.XunitException($"Server task faulted: {serverTask.Exception}");
         }
     }
 
