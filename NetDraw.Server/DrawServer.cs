@@ -18,6 +18,8 @@ public class DrawServer
     private readonly IRateLimiter _rateLimiter;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DrawServer> _logger;
+    private readonly CancellationTokenSource _cts = new();
+    private bool _bound;
 
     public DrawServer(int port, MessageDispatcher dispatcher, IClientRegistry clientRegistry, IRoomService roomService, IRateLimiter rateLimiter, ILoggerFactory loggerFactory)
     {
@@ -30,14 +32,37 @@ public class DrawServer
         _logger = loggerFactory.CreateLogger<DrawServer>();
     }
 
+    // Read after Bind() (or StartAsync) so the kernel has assigned a port (port 0 → ephemeral).
+    public int BoundPort => ((IPEndPoint)_listener.LocalEndpoint).Port;
+
+    // Synchronous bind — lets callers (tests) read BoundPort before launching the accept loop.
+    public void Bind()
+    {
+        if (_bound) return;
+        _listener.Start();
+        _bound = true;
+    }
+
     public async Task StartAsync()
     {
-        _listener.Start();
+        Bind();
         _logger.LogInformation("Listening on port {Port}", ((IPEndPoint)_listener.LocalEndpoint).Port);
 
-        while (true)
+        while (!_cts.IsCancellationRequested)
         {
-            var tcpClient = await _listener.AcceptTcpClientAsync();
+            TcpClient tcpClient;
+            try
+            {
+                tcpClient = await _listener.AcceptTcpClientAsync(_cts.Token);
+            }
+            catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
             var handler = new ClientHandler(tcpClient, _loggerFactory.CreateLogger<ClientHandler>());
 
             handler.MessageReceived += async (sender, type, senderId, senderName, roomId, payload) =>
@@ -72,5 +97,12 @@ public class DrawServer
 
             _ = Task.Run(handler.ListenAsync);
         }
+    }
+
+    public Task StopAsync()
+    {
+        if (!_cts.IsCancellationRequested) _cts.Cancel();
+        try { _listener.Stop(); } catch (ObjectDisposedException) { }
+        return Task.CompletedTask;
     }
 }
