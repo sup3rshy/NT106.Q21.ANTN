@@ -85,12 +85,8 @@ public class ClientHandler
                 int payloadLength = (_buffer[pos + 3] << 16) | (_buffer[pos + 4] << 8) | _buffer[pos + 5];
                 if (payloadLength > MessageEnvelope.MaxBinaryPayloadLength)
                 {
-                    // Framer-level fatal: the receiver has no way to know whether the next
-                    // 16M+ bytes are a real (oversize) frame or junk after a desync, so
-                    // closing the connection is the only safe option (per the design doc's
-                    // "framer can't reliably re-sync inside what we hoped was binary").
                     await SendBinaryFatalErrorAsync(
-                        ErrorCodes.BinaryBadMagic,
+                        ErrorCodes.BinaryBodyUnderrun,
                         $"binary frame length {payloadLength} exceeds {MessageEnvelope.MaxBinaryPayloadLength}-byte cap");
                     _isConnected = false;
                     return;
@@ -125,10 +121,6 @@ public class ClientHandler
                 continue;
             }
 
-            // Anything else (top-level JSON array '[' or junk) is unrecognised framing.
-            // The JSON parser doesn't accept a top-level array today and the design doc
-            // closes the connection on unknown framing; trying to resync inside what was
-            // supposed to be a binary or JSON frame is a worse failure mode than a reconnect.
             await SendBinaryFatalErrorAsync(
                 ErrorCodes.BinaryBadMagic,
                 $"unrecognised framing byte 0x{first:x2}");
@@ -174,19 +166,17 @@ public class ClientHandler
         var envelope = MessageEnvelope.ParseBinary(frame);
         if (envelope is null)
         {
-            // ParseBinary already enforced the receiver-side length cap; the only ways
-            // we land here are bad magic, unknown version, unknown type-id, or declared
-            // length not matching the slice. All are unrecoverable framer-level desyncs.
-            await SendBinaryFatalErrorAsync(
-                ErrorCodes.BinaryBadMagic,
+            string code = (frame.Length > 0 && frame[0] != MessageEnvelope.BinaryMagic)
+                ? ErrorCodes.BinaryBadMagic
+                : (frame.Length > 1 && frame[1] != MessageEnvelope.BinaryVersion)
+                    ? ErrorCodes.BinaryVersionUnsupported
+                    : ErrorCodes.BinaryBodyUnderrun;
+            await SendBinaryFatalErrorAsync(code,
                 "malformed binary frame (magic, version, length, or type-id rejected)");
             _isConnected = false;
             return false;
         }
 
-        // Phase 1: every type-id is answered with BINARY_NOT_IMPLEMENTED via the binary stub
-        // path. Higher-level handlers do not see binary frames yet because per-type body
-        // decoders are Phase 2/3 deliverables.
         await SendBinaryStubErrorAsync(envelope.Type);
         return true;
     }

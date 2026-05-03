@@ -510,7 +510,7 @@ function netdraw_proto.dissector(tvb, pinfo, tree)
             local line_len = nl - offset
             local line_tvb = tvb(offset, line_len)
             dissect_message(line_tvb, pinfo, tree)
-            offset = offset + line_len
+            offset = offset + line_len + 1
 
         elseif first == 0x0D or first == 0x0A or first == 0x09 or first == 0x20 then
             offset = offset + 1

@@ -148,7 +148,7 @@ public class ClientHandlerFramerTests
                     if (sb.ToString().Contains('\n')) break;
                 }
             }
-            Assert.Contains("\"code\":\"" + ErrorCodes.BinaryBadMagic + "\"", sb.ToString());
+            Assert.Contains("\"code\":\"" + ErrorCodes.BinaryBodyUnderrun + "\"", sb.ToString());
 
             var done = await Task.WhenAny(listenTask, Task.Delay(2000));
             Assert.Same(listenTask, done);
