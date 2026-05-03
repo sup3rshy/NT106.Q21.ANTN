@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using NetDraw.Server.Pipeline;
 using NetDraw.Server.Services;
@@ -15,28 +16,39 @@ public class AiHandler : IMessageHandler
     private readonly IMcpClient _mcpClient;
     private readonly IAiParser _fallbackParser;
     private readonly ILogger<AiHandler> _logger;
+    private readonly int _maxPromptBytes;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _roomQueues = new();
 
-    public AiHandler(IRoomService roomService, IMcpClient mcpClient, IAiParser fallbackParser, ILogger<AiHandler> logger)
+    public AiHandler(IRoomService roomService, IMcpClient mcpClient, IAiParser fallbackParser, ILogger<AiHandler> logger, int maxPromptBytes = 4096)
     {
         _roomService = roomService;
         _mcpClient = mcpClient;
         _fallbackParser = fallbackParser;
         _logger = logger;
+        _maxPromptBytes = maxPromptBytes;
     }
 
     public bool CanHandle(MessageType type) => type is MessageType.AiCommand;
 
-    public Task HandleAsync(MessageType type, string senderId, string senderName, string roomId, JObject? payload, ClientHandler sender)
+    public async Task HandleAsync(MessageType type, string senderId, string senderName, string roomId, JObject? payload, ClientHandler sender)
     {
         var cmdPayload = MessageEnvelope.DeserializePayload<AiCommandPayload>(payload);
-        if (cmdPayload == null) return Task.CompletedTask;
+        if (cmdPayload == null) return;
+
+        var prompt = cmdPayload.Prompt ?? string.Empty;
+        var promptBytes = Encoding.UTF8.GetByteCount(prompt);
+        if (promptBytes > _maxPromptBytes)
+        {
+            var err = NetMessage<ErrorPayload>.Create(MessageType.Error, "server", "Server", roomId,
+                new ErrorPayload { Message = $"AI prompt too long ({promptBytes} > {_maxPromptBytes} bytes)" });
+            await sender.SendAsync(err);
+            return;
+        }
 
         // *** CRITICAL: run AI work in background so the client message-loop is NOT blocked.
         // Without this, cursor moves / draw strokes / chat from this client all freeze while
         // waiting for the AI response (which can take 10–60 s with Claude API).
-        _ = Task.Run(() => ProcessInBackgroundAsync(cmdPayload.Prompt, senderId, roomId));
-        return Task.CompletedTask;
+        _ = Task.Run(() => ProcessInBackgroundAsync(prompt, senderId, roomId));
     }
 
     private async Task ProcessInBackgroundAsync(string prompt, string senderId, string roomId)
