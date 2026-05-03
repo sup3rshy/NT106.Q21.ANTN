@@ -19,6 +19,14 @@ public class TokenBucketRateLimiter : IRateLimiter
         var bucket = _buckets.GetOrAdd(client, _ => new Bucket(_capacity, DateTimeOffset.UtcNow));
         lock (bucket)
         {
+            // Lost a Forget race: drop the new ghost bucket so the dict can't grow per
+            // disconnect, and refuse the token — the client is leaving anyway.
+            if (bucket.Forgotten)
+            {
+                _buckets.TryRemove(client, out _);
+                return false;
+            }
+
             var now = DateTimeOffset.UtcNow;
             var elapsed = (now - bucket.LastRefill).TotalSeconds;
             bucket.Tokens = Math.Min(_capacity, bucket.Tokens + elapsed * _refillPerSec);
@@ -33,12 +41,19 @@ public class TokenBucketRateLimiter : IRateLimiter
         }
     }
 
-    public void Forget(ClientHandler client) => _buckets.TryRemove(client, out _);
+    public void Forget(ClientHandler client)
+    {
+        if (_buckets.TryRemove(client, out var bucket))
+        {
+            lock (bucket) bucket.Forgotten = true;
+        }
+    }
 
     private sealed class Bucket
     {
         public double Tokens;
         public DateTimeOffset LastRefill;
+        public bool Forgotten;
         public Bucket(double tokens, DateTimeOffset lastRefill)
         {
             Tokens = tokens;

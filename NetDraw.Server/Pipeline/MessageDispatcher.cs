@@ -33,7 +33,14 @@ public class MessageDispatcher
         {
             var err = NetMessage<ErrorPayload>.Create(MessageType.Error, "server", "Server", roomId,
                 new ErrorPayload { Message = "Rate limit exceeded" });
-            await sender.SendAsync(err);
+            try
+            {
+                await sender.SendAsync(err);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[!] Failed to send rate-limit reply: {ex.Message}");
+            }
             return;
         }
 
