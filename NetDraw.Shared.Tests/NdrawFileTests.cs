@@ -167,9 +167,17 @@ public class NdrawFileTests
             var revived = Assert.IsType<TextAction>(Assert.Single(doc.Actions));
             Assert.Equal(original, revived.Text);
 
-            var originalBytes = Encoding.UTF8.GetBytes(original);
-            var revivedBytes = Encoding.UTF8.GetBytes(revived.Text);
-            Assert.Equal(originalBytes, revivedBytes);
+            // Prove the on-disk bytes are UTF-8, not (e.g.) CP437 from a default ZipArchive entry encoding.
+            // Đ is U+0110 → 0xC4 0x90 in UTF-8.
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read);
+            using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
+            var actionsEntry = archive.GetEntry("actions.json")!;
+            using var entryStream = actionsEntry.Open();
+            using var ms = new MemoryStream();
+            entryStream.CopyTo(ms);
+            var raw = ms.ToArray();
+            Assert.True(IndexOfSequence(raw, new byte[] { 0xC4, 0x90 }) >= 0,
+                "actions.json should contain the UTF-8 bytes for 'Đ' (0xC4 0x90)");
         }
         finally
         {
@@ -308,5 +316,66 @@ public class NdrawFileTests
         {
             if (File.Exists(path)) File.Delete(path);
         }
+    }
+
+    [Fact]
+    public void Load_Throws_On_Missing_Version_Field()
+    {
+        var path = NewTempPath();
+        try
+        {
+            WriteManifestAndEmptyActions(path, manifestJson:
+                "{ \"createdAt\": \"2026-05-03T00:00:00+00:00\", \"actionCount\": 0 }");
+            Assert.Throws<InvalidDataException>(() => NdrawFile.Load(path));
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Load_Throws_On_Non_Positive_Version(int version)
+    {
+        var path = NewTempPath();
+        try
+        {
+            WriteManifestAndEmptyActions(path, manifestJson:
+                $"{{ \"version\": {version}, \"createdAt\": \"2026-05-03T00:00:00+00:00\", \"actionCount\": 0 }}");
+            var ex = Assert.Throws<InvalidDataException>(() => NdrawFile.Load(path));
+            Assert.Equal($"Invalid .ndraw version: {version}", ex.Message);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    private static void WriteManifestAndEmptyActions(string path, string manifestJson)
+    {
+        using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);
+        using var archive = new ZipArchive(fs, ZipArchiveMode.Create);
+
+        var m = archive.CreateEntry("manifest.json");
+        using (var w = new StreamWriter(m.Open())) w.Write(manifestJson);
+
+        var a = archive.CreateEntry("actions.json");
+        using (var w = new StreamWriter(a.Open())) w.Write("[]");
+    }
+
+    private static int IndexOfSequence(byte[] haystack, byte[] needle)
+    {
+        for (int i = 0; i <= haystack.Length - needle.Length; i++)
+        {
+            bool match = true;
+            for (int j = 0; j < needle.Length; j++)
+            {
+                if (haystack[i + j] != needle[j]) { match = false; break; }
+            }
+            if (match) return i;
+        }
+        return -1;
     }
 }

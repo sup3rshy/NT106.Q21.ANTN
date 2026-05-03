@@ -39,11 +39,25 @@ public static class NdrawFile
         var manifestJson = JsonConvert.SerializeObject(manifest, Formatting.Indented);
         var actionsJson = JsonConvert.SerializeObject(actions, Formatting.Indented, ActionSerializerSettings);
 
-        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: false);
-
-        WriteEntry(archive, ManifestEntry, manifestJson);
-        WriteEntry(archive, ActionsEntry, actionsJson);
+        // Atomic write: stage to <path>.tmp in the same directory (so File.Move stays a rename,
+        // not a cross-filesystem copy) and replace on success. A crash mid-write loses the tmp,
+        // not the user's prior save.
+        var tmp = path + ".tmp";
+        try
+        {
+            using (var stream = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: false))
+            {
+                WriteEntry(archive, ManifestEntry, manifestJson);
+                WriteEntry(archive, ActionsEntry, actionsJson);
+            }
+            File.Move(tmp, path, overwrite: true);
+        }
+        catch
+        {
+            if (File.Exists(tmp)) { try { File.Delete(tmp); } catch { /* leave */ } }
+            throw;
+        }
     }
 
     public static NdrawDocument Load(string path)
@@ -87,6 +101,9 @@ public static class NdrawFile
 
             if (manifest is null)
                 throw new InvalidDataException("Malformed manifest.json");
+
+            if (manifest.Version < 1)
+                throw new InvalidDataException($"Invalid .ndraw version: {manifest.Version}");
 
             if (manifest.Version > CurrentVersion)
                 throw new InvalidDataException($"Unsupported .ndraw version: {manifest.Version}");
@@ -135,7 +152,7 @@ public sealed class NdrawDocument
 
 internal sealed class NdrawManifest
 {
-    [JsonProperty("version")]
+    [JsonProperty("version", Required = Required.Always)]
     public int Version { get; set; }
 
     [JsonProperty("createdAt")]
