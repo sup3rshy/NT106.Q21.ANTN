@@ -16,6 +16,7 @@ public class NetworkService : INetworkService
     // Decoder (not Encoding.GetString) — keeps state across reads so a UTF-8 sequence
     // split between two ReadAsync chunks decodes correctly.
     private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
 
     public string ClientId { get; private set; } = "";
     public bool IsConnected => _isConnected && (_client?.Connected ?? false);
@@ -85,6 +86,7 @@ public class NetworkService : INetworkService
     public async Task SendAsync<T>(NetMessage<T> message) where T : IPayload
     {
         if (!IsConnected || _stream == null) return;
+        await _sendLock.WaitAsync();
         try
         {
             byte[] data = Encoding.UTF8.GetBytes(message.Serialize());
@@ -94,6 +96,10 @@ public class NetworkService : INetworkService
         catch (Exception ex)
         {
             Disconnected?.Invoke($"Lỗi gửi: {ex.Message}");
+        }
+        finally
+        {
+            _sendLock.Release();
         }
     }
 
