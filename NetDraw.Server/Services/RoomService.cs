@@ -10,6 +10,13 @@ public class RoomService : IRoomService
     private readonly ConcurrentDictionary<string, Room> _rooms = new();
     private readonly ConcurrentDictionary<ClientHandler, string> _clientRooms = new();
 
+    private static readonly string[] Palette =
+    {
+        "#E74C3C", "#3498DB", "#2ECC71", "#F39C12", "#9B59B6",
+        "#1ABC9C", "#E67E22", "#34495E", "#16A085", "#C0392B"
+    };
+    private const string FallbackColor = "#7F8C8D";
+
     public int MaxUsersPerRoom { get; }
     public int MaxRooms { get; }
 
@@ -52,10 +59,24 @@ public class RoomService : IRoomService
             if (!isRejoin && room.ClientCount >= MaxUsersPerRoom)
                 return JoinResult.RoomFull;
 
+            var color = PickColorForRoom(room, user.UserId);
+            client.UserColor = color;
+            user.Color = color;
+
             room.AddClient(client, user);
             _clientRooms[client] = roomId;
             return JoinResult.Ok;
         }
+    }
+
+    private static string PickColorForRoom(Room room, string joiningUserId)
+    {
+        var taken = room.GetUsers()
+            .Where(u => u.UserId != joiningUserId)
+            .Select(u => u.Color)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return Palette.FirstOrDefault(c => !taken.Contains(c)) ?? FallbackColor;
     }
 
     public void RemoveUserFromRoom(ClientHandler client)

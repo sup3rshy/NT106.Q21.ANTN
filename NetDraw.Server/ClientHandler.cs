@@ -14,15 +14,9 @@ public class ClientHandler
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private bool _isConnected = true;
 
-    private static readonly string[] Colors = {
-        "#E74C3C", "#3498DB", "#2ECC71", "#F39C12", "#9B59B6",
-        "#1ABC9C", "#E67E22", "#34495E", "#16A085", "#C0392B"
-    };
-    private static int _colorIndex;
-
     public string UserId { get; set; } = string.Empty;
     public string UserName { get; set; } = "Anonymous";
-    public string UserColor { get; }
+    public string UserColor { get; set; } = "#7F8C8D";
 
     public event Func<ClientHandler, MessageType, string, string, string, JObject?, Task>? MessageReceived;
     public event Func<ClientHandler, Task>? Disconnected;
@@ -31,7 +25,6 @@ public class ClientHandler
     {
         _tcpClient = tcpClient;
         _stream = tcpClient.GetStream();
-        UserColor = Colors[Interlocked.Increment(ref _colorIndex) % Colors.Length];
     }
 
     public async Task ListenAsync()

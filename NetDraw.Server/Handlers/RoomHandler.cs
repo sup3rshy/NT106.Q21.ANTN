@@ -51,9 +51,10 @@ public class RoomHandler : IMessageHandler
             await _roomService.BroadcastToRoomAsync(previousRoomId, leftMsg);
         }
 
-        var user = new UserInfo { UserId = senderId, UserName = senderName, Color = sender.UserColor };
         sender.UserId = senderId;
         sender.UserName = senderName;
+        // AddUserToRoom mutates user.Color (and sender.UserColor) to a per-room unique value.
+        var user = new UserInfo { UserId = senderId, UserName = senderName };
 
         var joinResult = _roomService.AddUserToRoom(roomId, sender, user);
         if (joinResult != JoinResult.Ok)
