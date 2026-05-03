@@ -7,6 +7,13 @@ namespace NetDraw.Server.Pipeline;
 
 public class MessageDispatcher
 {
+    // Lifecycle messages a flooded client must still be able to send so they can
+    // back off cleanly without holding a server-side seat hostage.
+    private static readonly HashSet<MessageType> RateLimitExempt = new()
+    {
+        MessageType.LeaveRoom,
+    };
+
     private readonly List<IMessageHandler> _handlers = new();
     private readonly IRateLimiter _rateLimiter;
 
@@ -22,7 +29,7 @@ public class MessageDispatcher
 
     public async Task DispatchAsync(MessageType type, string senderId, string senderName, string roomId, JObject? payload, ClientHandler sender)
     {
-        if (!_rateLimiter.TryAcquire(sender))
+        if (!RateLimitExempt.Contains(type) && !_rateLimiter.TryAcquire(sender))
         {
             var err = NetMessage<ErrorPayload>.Create(MessageType.Error, "server", "Server", roomId,
                 new ErrorPayload { Message = "Rate limit exceeded" });
