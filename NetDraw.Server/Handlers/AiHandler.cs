@@ -1,3 +1,4 @@
+using System.Text;
 using NetDraw.Server.Pipeline;
 using NetDraw.Server.Services;
 using NetDraw.Shared.Interfaces;
@@ -12,14 +13,14 @@ public class AiHandler : IMessageHandler
     private readonly IRoomService _roomService;
     private readonly IMcpClient _mcpClient;
     private readonly IAiParser _fallbackParser;
-    private readonly int _maxPromptLength;
+    private readonly int _maxPromptBytes;
 
-    public AiHandler(IRoomService roomService, IMcpClient mcpClient, IAiParser fallbackParser, int maxPromptLength = 4000)
+    public AiHandler(IRoomService roomService, IMcpClient mcpClient, IAiParser fallbackParser, int maxPromptBytes = 4096)
     {
         _roomService = roomService;
         _mcpClient = mcpClient;
         _fallbackParser = fallbackParser;
-        _maxPromptLength = maxPromptLength;
+        _maxPromptBytes = maxPromptBytes;
     }
 
     public bool CanHandle(MessageType type) => type is MessageType.AiCommand;
@@ -29,10 +30,12 @@ public class AiHandler : IMessageHandler
         var cmdPayload = MessageEnvelope.DeserializePayload<AiCommandPayload>(payload);
         if (cmdPayload == null) return;
 
-        if (cmdPayload.Prompt.Length > _maxPromptLength)
+        var prompt = cmdPayload.Prompt ?? string.Empty;
+        var promptBytes = Encoding.UTF8.GetByteCount(prompt);
+        if (promptBytes > _maxPromptBytes)
         {
             var err = NetMessage<ErrorPayload>.Create(MessageType.Error, "server", "Server", roomId,
-                new ErrorPayload { Message = $"AI prompt too long ({cmdPayload.Prompt.Length} > {_maxPromptLength})" });
+                new ErrorPayload { Message = $"AI prompt too long ({promptBytes} > {_maxPromptBytes} bytes)" });
             await sender.SendAsync(err);
             return;
         }
@@ -40,7 +43,7 @@ public class AiHandler : IMessageHandler
         // *** CRITICAL: run AI work in background so the client message-loop is NOT blocked.
         // Without this, cursor moves / draw strokes / chat from this client all freeze while
         // waiting for the AI response (which can take 10–60 s with Claude API).
-        _ = Task.Run(() => ProcessInBackgroundAsync(cmdPayload.Prompt, senderId, roomId));
+        _ = Task.Run(() => ProcessInBackgroundAsync(prompt, senderId, roomId));
     }
 
     private async Task ProcessInBackgroundAsync(string prompt, string senderId, string roomId)
