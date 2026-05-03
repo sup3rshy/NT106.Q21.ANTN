@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using NetDraw.Server;
 using NetDraw.Server.Handlers;
 using NetDraw.Server.Pipeline;
@@ -21,10 +22,12 @@ public class JoinRoomIntegrationTests
 
         var clientRegistry = new ClientRegistry();
         var roomService = new RoomService();
-        var dispatcher = new MessageDispatcher();
+        var rateLimiter = new TokenBucketRateLimiter(capacity: 200, refillPerSec: 50);
+        using var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole());
+        var dispatcher = new MessageDispatcher(rateLimiter, loggerFactory.CreateLogger<MessageDispatcher>());
         dispatcher.Register(new RoomHandler(roomService, clientRegistry));
 
-        var server = new DrawServer(port, dispatcher, clientRegistry, roomService);
+        var server = new DrawServer(port, dispatcher, clientRegistry, roomService, rateLimiter, loggerFactory);
         var serverTask = Task.Run(server.StartAsync);
 
         using var tcp = new TcpClient();
