@@ -18,10 +18,13 @@ public class MessageDispatcher
     };
 
     // Token check is skipped for JoinRoom because the client cannot present a token
-    // before the server has issued one. Mirrors the LeaveRoom rate-limit exemption.
+    // before the server has issued one. Resume is exempt for the same reason — the
+    // token it carries is in the payload, not the envelope, and validation happens
+    // inside RoomHandler.HandleResumeAsync via SessionTokenStore.TryClaim.
     private static readonly HashSet<MessageType> SessionTokenExempt = new()
     {
         MessageType.JoinRoom,
+        MessageType.Resume,
     };
 
     private static readonly long RejectReplyCooldownTicks = Stopwatch.Frequency; // 1 s

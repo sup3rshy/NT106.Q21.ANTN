@@ -22,7 +22,7 @@ public class RoomHandler : IMessageHandler
     }
 
     public bool CanHandle(MessageType type) =>
-        type is MessageType.JoinRoom or MessageType.LeaveRoom or MessageType.RoomList;
+        type is MessageType.JoinRoom or MessageType.LeaveRoom or MessageType.RoomList or MessageType.Resume;
 
     public async Task HandleAsync(MessageEnvelope.Envelope envelope, ClientHandler sender)
     {
@@ -36,6 +36,9 @@ public class RoomHandler : IMessageHandler
                 break;
             case MessageType.RoomList:
                 await HandleRoomListAsync(sender);
+                break;
+            case MessageType.Resume:
+                await HandleResumeAsync(envelope, sender);
                 break;
         }
     }
@@ -106,6 +109,7 @@ public class RoomHandler : IMessageHandler
             sender.SessionToken = Base64UrlEncoding.Encode(bytes);
             _sessionTokenStore.Issue(sender.SessionToken, bytes, sender, senderId);
         }
+        _sessionTokenStore.RecordRoom(sender, roomId);
 
         var room = _roomService.GetRoom(roomId)!;
         var joinedMsg = NetMessage<RoomJoinedPayload>.Create(
@@ -145,5 +149,70 @@ public class RoomHandler : IMessageHandler
             MessageType.RoomList, "server", "Server", "",
             new RoomListPayload { Rooms = _roomService.GetAllRoomInfos() });
         await sender.SendAsync(msg);
+    }
+
+    private async Task HandleResumeAsync(MessageEnvelope.Envelope envelope, ClientHandler sender)
+    {
+        // Resume runs before any token is bound to this connection. The dispatcher
+        // exempts MessageType.Resume; the token *is* the credential for this message.
+        var payload = MessageEnvelope.DeserializePayload<ResumePayload>(envelope.RawPayload);
+        var token = payload?.Token ?? string.Empty;
+
+        if (!_sessionTokenStore.TryClaim(token, sender, out var userId, out var lastRoomId))
+        {
+            await SendResumeFailedAsync(sender, envelope.RoomId);
+            return;
+        }
+
+        var roomId = lastRoomId ?? envelope.RoomId;
+        var room = _roomService.GetRoom(roomId);
+        if (room is null)
+        {
+            // Grace expired or last room never recorded — fall through to fresh-join.
+            await SendResumeFailedAsync(sender, envelope.RoomId);
+            return;
+        }
+
+        var existing = room.GetUsers().FirstOrDefault(u => u.UserId == userId);
+        var userName = existing?.UserName ?? envelope.SenderName;
+        var color = existing?.Color ?? sender.UserColor;
+
+        sender.UserId = userId;
+        sender.UserName = userName;
+        sender.UserColor = color;
+
+        // Rebind room membership: AddClient dedupes by UserId, so this swaps the
+        // dead handler ref out for the live one without disturbing room history.
+        room.AddClient(sender, new UserInfo { UserId = userId, UserName = userName, Color = color });
+        _clientRegistry.Register(userId, sender);
+        // Keep _clientRooms mapping fresh (dead handler still mapped from before).
+        _roomService.AddUserToRoom(roomId, sender, new UserInfo { UserId = userId, UserName = userName, Color = color });
+        _sessionTokenStore.RecordRoom(sender, roomId);
+
+        var resumeReply = NetMessage<RoomJoinedPayload>.Create(
+            MessageType.ResumeAccepted, "server", "Server", roomId,
+            new RoomJoinedPayload
+            {
+                Room = new RoomInfo { RoomId = roomId, RoomName = roomId, UserCount = room.ClientCount },
+                History = room.GetHistory(),
+                Users = room.GetUsers(),
+                SessionToken = sender.SessionToken
+            });
+        await sender.SendAsync(resumeReply);
+
+        // Peers see a UserJoined replay. The peer-side AddClient is idempotent on
+        // the dead UserId, so this matches "user came back" semantics for the UI.
+        var userJoinedMsg = NetMessage<UserPayload>.Create(
+            MessageType.UserJoined, userId, userName, roomId,
+            new UserPayload { User = new UserInfo { UserId = userId, UserName = userName, Color = color } });
+        await _roomService.BroadcastToRoomAsync(roomId, userJoinedMsg, exclude: sender);
+    }
+
+    private static async Task SendResumeFailedAsync(ClientHandler sender, string roomId)
+    {
+        var err = NetMessage<ErrorPayload>.Create(
+            MessageType.Error, "server", "Server", roomId,
+            new ErrorPayload { Message = "session resume failed", Code = ErrorCodes.AuthResumeFailed });
+        await sender.SendAsync(err);
     }
 }
