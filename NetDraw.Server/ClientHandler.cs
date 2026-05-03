@@ -13,6 +13,7 @@ public class ClientHandler
     private readonly StringBuilder _buffer = new();
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private bool _isConnected = true;
+    private int _tornDown;
 
     public string UserId { get; set; } = string.Empty;
     public string UserName { get; set; } = "Anonymous";
@@ -55,10 +56,7 @@ public class ClientHandler
         }
         finally
         {
-            _isConnected = false;
-            if (Disconnected != null)
-                await Disconnected(this);
-            try { _stream.Close(); _tcpClient.Close(); } catch { }
+            await TearDownAsync();
         }
     }
 
@@ -107,7 +105,7 @@ public class ClientHandler
 
     private async Task TearDownAsync()
     {
-        if (!_isConnected) return;
+        if (Interlocked.Exchange(ref _tornDown, 1) == 1) return;
         _isConnected = false;
         try { _stream.Close(); _tcpClient.Close(); } catch { }
         if (Disconnected != null)
