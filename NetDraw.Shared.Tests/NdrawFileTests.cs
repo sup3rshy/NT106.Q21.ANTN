@@ -206,6 +206,42 @@ public class NdrawFileTests
     }
 
     [Fact]
+    public void Save_Then_Load_Preserves_UserId_Per_Action()
+    {
+        var path = NewTempPath();
+        try
+        {
+            var actions = new List<DrawActionBase>
+            {
+                new PenAction { UserId = "alice", UserName = "Alice",
+                    Points = { new PointData(0, 0), new PointData(1, 1) } },
+                new ShapeAction { UserId = "bob", UserName = "Bob",
+                    ShapeType = ShapeType.Rect, X = 0, Y = 0, Width = 10, Height = 10 },
+                new TextAction { UserId = "carol", UserName = "Carol",
+                    Text = "hi", X = 1, Y = 2 }
+            };
+
+            NdrawFile.Save(path, actions);
+            var doc = NdrawFile.Load(path);
+
+            Assert.Equal(3, doc.Actions.Count);
+            Assert.IsType<PenAction>(doc.Actions[0]);
+            Assert.Equal("alice", doc.Actions[0].UserId);
+            Assert.Equal("Alice", doc.Actions[0].UserName);
+            Assert.IsType<ShapeAction>(doc.Actions[1]);
+            Assert.Equal("bob", doc.Actions[1].UserId);
+            Assert.Equal("Bob", doc.Actions[1].UserName);
+            Assert.IsType<TextAction>(doc.Actions[2]);
+            Assert.Equal("carol", doc.Actions[2].UserId);
+            Assert.Equal("Carol", doc.Actions[2].UserName);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Load_Throws_On_Missing_File()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N") + ".ndraw");

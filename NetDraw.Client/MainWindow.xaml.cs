@@ -7,6 +7,7 @@ using NetDraw.Client.Drawing;
 using NetDraw.Client.Infrastructure;
 using NetDraw.Client.Services;
 using NetDraw.Client.ViewModels;
+using NetDraw.Shared.IO;
 using NetDraw.Shared.Models;
 using NetDraw.Shared.Models.Actions;
 using NetDraw.Shared.Protocol;
@@ -633,20 +634,57 @@ public partial class MainWindow : Window
 
     private void BtnSave_Click(object s, RoutedEventArgs e)
     {
-        var dialog = new Microsoft.Win32.SaveFileDialog { Filter = "NetDraw File|*.ndr|JSON|*.json", FileName = $"drawing_{DateTime.Now:yyyyMMdd_HHmmss}.ndr" };
+        var dialog = new Microsoft.Win32.SaveFileDialog
+        {
+            Filter = "NetDraw|*.ndraw|Legacy|*.ndr|JSON|*.json",
+            FileName = $"drawing_{DateTime.Now:yyyyMMdd_HHmmss}.ndraw",
+            DefaultExt = "ndraw",
+            AddExtension = true
+        };
         if (dialog.ShowDialog() != true) return;
-        var fileService = new FileService();
-        fileService.Save(dialog.FileName, _history.GetAll());
+
+        var ext = System.IO.Path.GetExtension(dialog.FileName);
+        if (string.Equals(ext, ".ndraw", StringComparison.OrdinalIgnoreCase))
+        {
+            NdrawFile.Save(dialog.FileName, _history.GetAll());
+        }
+        else
+        {
+            var fileService = new FileService();
+            fileService.Save(dialog.FileName, _history.GetAll());
+        }
         _events.Publish(new AppendChatEvent($"[Hệ thống] Đã lưu: {System.IO.Path.GetFileName(dialog.FileName)}", true));
     }
 
     private async void BtnLoad_Click(object s, RoutedEventArgs e)
     {
-        var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "NetDraw File|*.ndr|JSON|*.json|All|*.*" };
+        var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "NetDraw|*.ndraw|Legacy|*.ndr|JSON|*.json|All|*.*" };
         if (dialog.ShowDialog() != true) return;
-        var fileService = new FileService();
-        var actions = fileService.Load(dialog.FileName);
-        if (actions == null) { MessageBox.Show("File không hợp lệ!", "Lỗi"); return; }
+
+        List<DrawActionBase>? actions;
+        var ext = System.IO.Path.GetExtension(dialog.FileName);
+        if (string.Equals(ext, ".ndraw", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var doc = NdrawFile.Load(dialog.FileName);
+                actions = doc.Actions.ToList();
+            }
+            catch (Exception ex) when (ex is System.IO.InvalidDataException
+                                         or System.IO.IOException
+                                         or UnauthorizedAccessException
+                                         or Newtonsoft.Json.JsonException)
+            {
+                MessageBox.Show($"File không hợp lệ: {ex.Message}", "Lỗi");
+                return;
+            }
+        }
+        else
+        {
+            var fileService = new FileService();
+            actions = fileService.Load(dialog.FileName);
+            if (actions == null) { MessageBox.Show("File không hợp lệ!", "Lỗi"); return; }
+        }
 
         foreach (var a in actions) { a.UserId = _vm.Canvas.UserId; a.UserName = _vm.Canvas.UserName; }
 
