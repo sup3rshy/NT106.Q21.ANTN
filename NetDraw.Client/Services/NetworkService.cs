@@ -28,6 +28,12 @@ public class NetworkService : INetworkService
     {
         try
         {
+            // Reset stream-state carriers in case the previous session left a partial UTF-8
+            // sequence in the decoder or trailing bytes in the line buffer — otherwise the
+            // first message of the new session can decode as garbage.
+            _decoder.Reset();
+            _buffer.Clear();
+
             _client = new TcpClient();
             await _client.ConnectAsync(host, port);
             _stream = _client.GetStream();

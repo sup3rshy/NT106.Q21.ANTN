@@ -640,15 +640,21 @@ public partial class MainWindow : Window
         _events.Publish(new AppendChatEvent($"[Hệ thống] Đã lưu: {System.IO.Path.GetFileName(dialog.FileName)}", true));
     }
 
-    private void BtnLoad_Click(object s, RoutedEventArgs e)
+    private async void BtnLoad_Click(object s, RoutedEventArgs e)
     {
         var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "NetDraw File|*.ndr|JSON|*.json|All|*.*" };
         if (dialog.ShowDialog() != true) return;
         var fileService = new FileService();
         var actions = fileService.Load(dialog.FileName);
         if (actions == null) { MessageBox.Show("File không hợp lệ!", "Lỗi"); return; }
+
+        // Re-stamp loaded actions with the current user's identity. The server keys per-user
+        // undo on Action.UserId, and the file may have been authored by someone else — without
+        // this the loader can't undo their own load and peers see the wrong author name.
+        foreach (var a in actions) { a.UserId = _vm.Canvas.UserId; a.UserName = _vm.Canvas.UserName; }
+
         _vm.Canvas.HandleSnapshot(actions);
-        BroadcastActions(actions);
+        await BroadcastActionsAsync(actions);
     }
 
     private void BtnExport_Click(object s, RoutedEventArgs e)
@@ -700,6 +706,7 @@ public partial class MainWindow : Window
         foreach (var action in dlg.SelectedActions)
         {
             action.UserId = _vm.Canvas.UserId;
+            action.UserName = _vm.Canvas.UserName;
             action.GroupId = groupId;
             _history.Add(action, isLocal: true);
             RenderAction(action);
@@ -716,10 +723,17 @@ public partial class MainWindow : Window
         _ = _vm.Network.SendAsync(msg);
     }
 
-    private void BroadcastActions(List<DrawActionBase> actions)
+    private async Task BroadcastActionsAsync(List<DrawActionBase> actions)
     {
         if (!_vm.Network.IsConnected) return;
-        foreach (var action in actions) BroadcastAction(action);
+        // Sequential await: SemaphoreSlim does not guarantee FIFO acquisition, so a fire-and-
+        // forget loop can deliver a multi-action load out of order on the wire.
+        foreach (var action in actions)
+        {
+            var msg = NetMessage<DrawPayload>.Create(MessageType.Draw, _vm.Canvas.UserId, _vm.Canvas.UserName, _vm.Canvas.RoomId,
+                new DrawPayload { Action = action });
+            await _vm.Network.SendAsync(msg);
+        }
     }
 
     #endregion
