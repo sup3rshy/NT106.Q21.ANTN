@@ -63,6 +63,11 @@ sequenceDiagram
     LB-->>C: (forward)
 ```
 
+Port scheme: the LB listens on `5500` (forward) and `5550` (stats). Backends
+use `5000+i` (TCP) and `5050+i` (health) per instance `i`. Three backends on
+one host is therefore `5000:5050`, `5001:5051`, `5002:5052` — collision-free
+with the LB's own ports and with each other.
+
 The LB has three independent surfaces:
 
 1. **L4 forward listener** (default port `5500`) — accepts client TCP, opens an
@@ -86,10 +91,23 @@ reads, on every TCP connection.
 ```
 
 `H = xxhash32(utf8(roomId), seed=0)` written in **network byte order
-(big-endian)**. Hash input is the exact UTF-8 bytes of the `roomId` string the
-client will put in the JSON envelope: no trim, no case-fold, no Unicode
-normalization. The server applies the same byte-for-byte rule for validation, so
-the two sides never disagree.
+(big-endian)**. xxhash32's internal little-endian lane reads are part of the
+algorithm spec and are unrelated to the big-endian wire encoding of the
+resulting `uint32`.
+
+Hash input is the UTF-8 bytes of the `roomId` string after normalization:
+
+- The client must NFC-normalize `roomId` before both hashing and putting it in
+  the JSON envelope. Without this, `phòng-vẽ` typed on Windows (NFC) and on
+  macOS (NFD) hashes to two different uint32s and routes to two different
+  backends — silent split-brain.
+- The server validates that the received `roomId` is already NFC
+  (`string.IsNormalized(NormalizationForm.FormC)`); if not, it sends `Error`
+  with `"roomId must be Unicode NFC"` and closes.
+- No trim, no case-fold beyond NFC.
+
+The server applies the same byte-for-byte hash rule on the post-validation
+string, so the two sides never disagree.
 
 ### Why xxhash32
 
@@ -178,96 +196,177 @@ bugs. So we add a pre-handshake step before the loop:
 ```csharp
 public async Task ListenAsync()
 {
-    uint? expectedPrefix = await ReadPrefixOrNull(_stream); // 4 raw bytes, or null on legacy
+    uint expectedPrefix = await ReadPrefixAsync(_stream); // 4 raw bytes, big-endian uint32
     // existing decoder loop unchanged
 }
 ```
 
-`ReadPrefixOrNull` peeks one byte. If it is `0x7B` (`{`), the connection is
-legacy-mode (no prefix): the byte is fed back into the decoder buffer and the
-loop runs as before. Otherwise three more bytes are read with `ReadExactlyAsync`
-and combined as big-endian `uint32`.
+`ReadPrefixAsync` reads exactly four bytes with `ReadExactlyAsync` and combines
+them as a big-endian `uint32`. No peek, no legacy fallback — the prefix is
+mandatory from v1 onward. A connection that closes before four bytes arrive is
+torn down; no `Error` frame is sent (we don't yet know the protocol the peer
+speaks).
 
 Validation lives in `RoomHandler.HandleJoinAsync`, not in `ClientHandler`. When
-the JoinRoom envelope arrives, the handler computes
-`XxHash32.Hash(Encoding.UTF8.GetBytes(roomId))` and compares with the stashed
+the JoinRoom envelope arrives, the handler NFC-normalizes `roomId`, computes
+`XxHash32.Hash(Encoding.UTF8.GetBytes(roomId))`, and compares with the stashed
 prefix. Mismatch → send `Error` with message
-`"roomId hash does not match routing prefix"` and close. Legacy mode (no
-prefix) skips the check.
+`"roomId hash does not match routing prefix"` and close.
 
-### Backward-compat detection and its hole
+### No legacy peek, no flag day
 
-The peek-for-`0x7B` rule is unambiguous in one direction (`{` is never the high
-byte of a v1 prefix that the client intends as a hash, because the client picks
-which mode to use). It is **not** unambiguous in the other direction: a v1
-client whose `xxhash32(roomId)` happens to begin with `0x7B` will be
-misidentified as legacy by the server's peek, the validation step is skipped,
-and the connection proceeds as if v1 didn't exist. Probability per room ≈ 1/256
-≈ 0.4%. Real consequence: the LB still routes such a connection correctly (LB
-trusts the prefix bytes it sees on the wire), but the server's defence-in-depth
-check is bypassed for that one connection. Documented as a known v1 limitation.
+There is no `0x7B`-peek backwards-compat path. The original sketch proposed one
+and ran into two problems the reviewer flagged: the LB would have to do the
+same peek (or it can't tell legacy clients apart either), which means the LB is
+also fooled at ≈ 0.4% per room and falls back to a default routing rule that
+breaks consistent hashing; and shipping the server-side peek before the client
+patch creates a flag day where any pre-patch client whose first byte happens to
+be whitespace, BOM, or `\n` keepalive gets misread as a v1 prefix.
 
-v2 of the protocol bumps `ProtocolVersion.Current` and makes the prefix
-mandatory. Server then rejects any first-byte = `0x7B` connection. The
-backwards-compat detection is removed entirely.
+The simpler rule:
+
+- **LB path:** the LB requires the 4-byte prefix on every accepted connection.
+  A connection without one (peer sends `{` first, or fewer than 4 bytes before
+  closing) is dropped without an upstream dial. Legacy clients cannot reach the
+  cluster through the LB.
+- **Direct-to-backend path:** in pre-LB deployments (Phase 1 alone, before the
+  LB process exists), clients connect straight to a backend's TCP port. In that
+  topology the server still requires the prefix; the v1 client patch lands in
+  the same release as the server-side requirement, so there is no asymmetric
+  rollout window.
+- **Phase 1 ships server and client atomically.** One PR, both projects
+  updated, prefix mandatory on both sides from the moment of merge. No feature
+  flag, no transition window, no `0x7B` peek anywhere in the system.
 
 ## Consistent-hashing ring
 
-A standard `SortedDictionary<uint, BackendId>` ring with virtual nodes. Each
-backend gets `NETDRAW_LB_VNODES` (default 100) entries on the ring, placed at
-`xxhash32($"{backendId}#{vnodeIndex}")`. Routing a key = find the smallest ring
-entry `>=` the key, wrapping to the first entry if no such entry exists.
+Each backend gets `NETDRAW_LB_VNODES` (default 100) entries on the ring, placed
+at `xxhash32($"{backendId}#{vnodeIndex}")`. Routing a key = find the smallest
+ring entry `>=` the key, wrapping to the first entry if no such entry exists.
+
+`Lookup` runs once per accepted TCP connection (not per draw frame), but it
+still needs to be sub-linear and never block on a ring rebuild. A linear
+`foreach` over a `SortedDictionary` under a wide lock would make every new
+client wait for the prober to finish hashing 100 vnodes whenever a backend
+flips state. So the ring keeps two parallel sorted arrays — `uint[] _keys` and
+`string[] _ids` — built off the lock and swapped in atomically. Reads do
+`Array.BinarySearch` against a snapshot reference; writes compute new arrays
+outside the lock and `Volatile.Write` them in.
 
 ```csharp
 public sealed class HashRing
 {
-    private readonly SortedDictionary<uint, string> _ring = new();
-    private readonly object _lock = new();
+    private readonly object _writeLock = new();
     private readonly int _vnodes;
+
+    private sealed class Snapshot
+    {
+        public uint[] Keys = Array.Empty<uint>();
+        public string[] Ids = Array.Empty<string>();
+    }
+    private Snapshot _snap = new();
 
     public HashRing(int vnodes) { _vnodes = vnodes; }
 
+    public string? Lookup(uint key)
+    {
+        var s = Volatile.Read(ref _snap);
+        if (s.Keys.Length == 0) return null;
+        int idx = Array.BinarySearch(s.Keys, key);
+        if (idx < 0) idx = ~idx;            // first key > target
+        if (idx == s.Keys.Length) idx = 0;  // wrap
+        return s.Ids[idx];
+    }
+
     public void Add(string backendId)
     {
-        lock (_lock)
+        var newPairs = ComputeVnodes(backendId); // (uint key, string id) × _vnodes — done OUTSIDE the lock
+        lock (_writeLock)
         {
-            for (int i = 0; i < _vnodes; i++)
+            var cur = _snap;
+            var merged = new SortedDictionary<uint, string>();
+            for (int i = 0; i < cur.Keys.Length; i++) merged[cur.Keys[i]] = cur.Ids[i];
+            foreach (var (k, id) in newPairs)
             {
-                uint h = XxHash32.Hash(Encoding.UTF8.GetBytes($"{backendId}#{i}"));
-                _ring[h] = backendId;
+                if (merged.ContainsKey(k)) continue; // collision: keep incumbent, accept the slight skew
+                merged[k] = id;
             }
+            Volatile.Write(ref _snap, Materialize(merged));
         }
     }
 
     public void Remove(string backendId)
     {
-        lock (_lock)
+        var owned = ComputeVnodes(backendId); // recompute the same hashes outside the lock
+        lock (_writeLock)
         {
-            for (int i = 0; i < _vnodes; i++)
+            var cur = _snap;
+            var merged = new SortedDictionary<uint, string>();
+            for (int i = 0; i < cur.Keys.Length; i++) merged[cur.Keys[i]] = cur.Ids[i];
+            foreach (var (k, _) in owned)
             {
-                uint h = XxHash32.Hash(Encoding.UTF8.GetBytes($"{backendId}#{i}"));
-                _ring.Remove(h);
+                if (merged.TryGetValue(k, out var owner) && owner == backendId)
+                    merged.Remove(k);
+                // else: collided with another backend's vnode that won the Add race; leave it
             }
+            Volatile.Write(ref _snap, Materialize(merged));
         }
     }
 
-    public string? Lookup(uint key)
+    private List<(uint, string)> ComputeVnodes(string backendId)
     {
-        lock (_lock)
-        {
-            if (_ring.Count == 0) return null;
-            foreach (var kv in _ring)        // SortedDictionary enumerates in key order
-                if (kv.Key >= key) return kv.Value;
-            return _ring.First().Value;      // wrap
-        }
+        var list = new List<(uint, string)>(_vnodes);
+        for (int i = 0; i < _vnodes; i++)
+            list.Add((XxHash32.Hash(Encoding.UTF8.GetBytes($"{backendId}#{i}")), backendId));
+        return list;
+    }
+
+    private static Snapshot Materialize(SortedDictionary<uint, string> sd)
+    {
+        var s = new Snapshot { Keys = new uint[sd.Count], Ids = new string[sd.Count] };
+        int i = 0;
+        foreach (var kv in sd) { s.Keys[i] = kv.Key; s.Ids[i] = kv.Value; i++; }
+        return s;
     }
 }
 ```
 
-`SortedDictionary` is `O(log N)` for mutation and `O(N)` for the linear lookup
-above; both are fine at N ≈ 500 (5 backends × 100 vnodes). If the demo scales,
-swap the lookup for binary search over a cached sorted-key array — interface
-unchanged.
+Lookup is `O(log N)` and lock-free. Add/Remove hold `_writeLock` only for the
+merge + array materialization; the 100 xxhash32 calls happen outside it. During
+a kill-restart demo, new client connections take a binary search over a stale
+snapshot until the writer publishes the new one — no client blocks on the
+prober.
+
+### Vnode collision policy
+
+Two vnodes from different backends can hash to the same `uint`. With 500 total
+vnodes the per-rebuild birthday probability is roughly `500² / (2 · 2³²) ≈
+3 × 10⁻⁵`. We accept the resulting slight skew rather than complicate the
+data structure with collision lists. Two consequences worth stating:
+
+- **Add** keeps the incumbent on a collision (`if merged.ContainsKey(k)
+  continue;`). The newcomer loses one of its 100 vnodes; load impact is
+  ≈ 1% of one backend's share, well below the design's 10% expected variance.
+- **Remove** checks `owner == backendId` before evicting. Without that check, a
+  collided slot owned by a still-live backend would disappear when the
+  colliding backend leaves, and the survivor would silently lose part of its
+  keyspace.
+
+### Startup seeding
+
+The ring is seeded with every configured backend marked `Healthy` at LB
+startup, before the prober has run a single probe. The forwarder is therefore
+guaranteed a non-empty ring on its first accepted connection. The prober
+demotes any backend that fails its first three probes (≈ 6 s after start),
+which mirrors HAProxy's `init-addr last,libc,none` behaviour. Without seeding,
+clients connecting in the first 6 s would hit an empty ring and the forwarder
+would have to either block, retry, or reject — all worse than serving them
+optimistically against a backend that turns out to be dead and letting the
+existing reconnect path handle the IOException.
+
+`Lookup` returns `null` only when every configured backend has been removed by
+the prober. The forwarder treats `null` as "no upstream available", closes the
+client socket immediately, and logs at warn level.
 
 ### Why 100 vnodes per backend
 
@@ -302,17 +401,17 @@ non-200, timeout, connection refused, or malformed JSON counts as fail.
 ### Backend address format
 
 `NETDRAW_BACKENDS` accepts entries of the form `host:tcpPort:healthPort`, comma
-separated:
+separated. The demo topology runs three backends on `127.0.0.1`:
 
 ```
-NETDRAW_BACKENDS=10.0.0.1:5000:5050,10.0.0.2:5000:5050,10.0.0.3:5000:5050
+NETDRAW_BACKENDS=127.0.0.1:5000:5050,127.0.0.1:5001:5051,127.0.0.1:5002:5052
 ```
 
 The third field is required because the existing server's `HEALTH_PORT` defaults
-to `5050` and is per-process — running 3 backends on one host (the demo
-topology) means each needs its own pair: `5000/5050`, `5001/5051`,
-`5002/5052`. Making the LB infer the health port from the TCP port would hide
-this from the operator.
+to `5050` and is per-process — running 3 backends on one host means each needs
+its own pair: `5000/5050`, `5001/5051`, `5002/5052`, leaving the LB's own
+`5500/5550` clear. Making the LB infer the health port from the TCP port would
+hide this from the operator.
 
 If `:healthPort` is omitted, the LB falls back to `5050` and logs a warning.
 
@@ -391,12 +490,12 @@ The LB exposes `GET http://{lb-host}:{NETDRAW_LB_STATS_PORT}/stats` (default
     "uptime_seconds": 1820,
     "vnodes_per_backend": 100,
     "last_rehash_at": "2026-05-03T11:42:08Z",
-    "last_rehash_reason": "backend host3:5000 unhealthy"
+    "last_rehash_reason": "backend 127.0.0.1:5002 unhealthy"
   },
   "backends": [
     {
-      "id": "host1:5000",
-      "health_url": "http://host1:5050/health",
+      "id": "127.0.0.1:5000",
+      "health_url": "http://127.0.0.1:5050/health",
       "state": "healthy",
       "consecutive_failures": 0,
       "consecutive_successes": 412,
@@ -406,22 +505,22 @@ The LB exposes `GET http://{lb-host}:{NETDRAW_LB_STATS_PORT}/stats` (default
       "bytes_out_per_sec": 38110
     },
     {
-      "id": "host2:5000",
+      "id": "127.0.0.1:5001",
       "state": "healthy",
       "active_connections": 31,
       "bytes_in_per_sec": 16002,
       "bytes_out_per_sec": 40220
     },
     {
-      "id": "host3:5000",
+      "id": "127.0.0.1:5002",
       "state": "unhealthy",
       "consecutive_failures": 7,
       "active_connections": 0
     }
   ],
   "ring_sample": [
-    { "key": "0x0001a2b3", "backend": "host1:5000" },
-    { "key": "0x00045def", "backend": "host2:5000" }
+    { "key": "0x0001a2b3", "backend": "127.0.0.1:5000" },
+    { "key": "0x00045def", "backend": "127.0.0.1:5001" }
   ]
 }
 ```
@@ -434,15 +533,18 @@ average JSON frame size) and labelled as such if surfaced in the demo UI.
 
 The demo script does:
 
-1. Start 3 backends.
-2. Start LB.
-3. Open 6 clients, observe `/stats` shows roughly `2 + 2 + 2` connections.
-4. `kill -9` backend 3, watch `/stats` — within ~6 s `state` flips to
-   `unhealthy`, `active_connections` reflects clients that lost their
-   sockets, `last_rehash_at` updates, surviving backends pick up the
+1. Start 3 backends on `127.0.0.1:5000`, `:5001`, `:5002` (health on `:5050`,
+   `:5051`, `:5052`).
+2. Start LB on `127.0.0.1:5500` (forward) and `:5550` (stats).
+3. Open 6 clients pointing at `127.0.0.1:5500`, observe `/stats` shows roughly
+   `2 + 2 + 2` connections across the three backends.
+4. `kill -9` the backend on `:5002`, watch `/stats` — within ~6 s `state`
+   flips to `unhealthy`, `active_connections` reflects clients that lost
+   their sockets, `last_rehash_at` updates, surviving backends pick up the
    reconnects.
-5. Restart backend 3, watch it return to `healthy` after ~6 s and start
-   accepting new traffic again. Existing connections do not migrate back.
+5. Restart the `:5002` backend, watch it return to `healthy` after ~6 s and
+   start accepting new traffic again. Existing connections do not migrate
+   back.
 
 ## Project layout
 
@@ -457,13 +559,14 @@ NetDraw.LoadBalancer/
                                    NETDRAW_LB_STATS_PORT parsing, env-var pattern from
                                    Server/Program.cs (ReadIntEnv / log-and-default-on-bad)
   Routing/
-    HashRing.cs                    SortedDictionary<uint,string> + vnodes (sketch above)
+    HashRing.cs                    parallel uint[] keys + string[] ids snapshot,
+                                   binary-search lookup, copy-on-write add/remove (sketch above)
     BackendRegistry.cs             id -> {tcpEndpoint, healthEndpoint, state}; thread-safe
   Forwarding/
     ConnectionForwarder.cs         accept loop; per-conn: read prefix, lookup, dial backend,
                                    forward prefix, run two CopyToAsync pumps, tear down
-    PrefixReader.cs                4-byte big-endian uint32 reader, peek-for-0x7B legacy
-                                   detection
+    PrefixReader.cs                4-byte big-endian uint32 reader; mandatory,
+                                   no legacy fallback (peer disconnect on short read)
   Health/
     HealthProber.cs                per-backend loop: probe, threshold, mutate registry+ring
   Stats/
@@ -486,13 +589,16 @@ No NuGet additions. The `HttpListener`, `TcpListener`, `TcpClient`,
 
 ## Phases
 
-**Phase 1 (S) — protocol prefix + server-side read.** Add
+**Phase 1 (S) — protocol prefix, server + client atomic.** One PR. Add
 `NetDraw.Shared/Util/XxHash32.cs` with one known-vector test in
 `NetDraw.Shared.Tests`. Patch `ClientHandler` with the pre-handshake prefix
-read and the `0x7B` peek for legacy. Patch `RoomHandler.HandleJoinAsync` to
-validate `xxhash32(roomId)` against the stashed prefix and emit `Error` on
-mismatch. Update the existing client to send the prefix. Backends still run
-standalone; nothing in this phase requires the LB to exist.
+read (mandatory `ReadExactlyAsync` of 4 bytes — no `0x7B` peek, no legacy
+fallback, peer disconnect on short read). Patch `RoomHandler.HandleJoinAsync`
+to NFC-validate `roomId`, hash it, and compare against the stashed prefix;
+emit `Error` on mismatch. Update the existing client to NFC-normalize and
+send the prefix. Server and client land in the same release so there is no
+window where one side requires the prefix and the other doesn't. Backends
+still run standalone; nothing in this phase requires the LB to exist.
 
 **Phase 2 (M) — LB process with ring + bidirectional pump.** Scaffold
 `NetDraw.LoadBalancer`. Implement `HashRing`, `BackendRegistry`,
@@ -514,37 +620,32 @@ within 6 s for the rehash. Connections to the dead backend tear down via
 demo script (shell, kicks off backends + LB + 6 clients, drives the kill /
 restart sequence, `curl`s `/stats` between steps).
 
+Effort: ~3 weeks for one junior C# dev who hasn't shipped a TCP proxy
+before, assuming the P8.T1 reconnect logic lands first. The S/M/S/S labels
+are size-relative; the absolute time goes into `Stream.CopyToAsync` half-close
+correctness, the `IOException` taxonomy in the pump, a kill-9 test harness
+that doesn't lie, and getting the EWMA counters off the hot path. An
+experienced dev would land this in ~1.5 weeks; the demo grader is not the
+bottleneck, the proxy correctness is.
+
 ## Open questions
 
-1. **Legacy-client routing.** A client without the 4-byte prefix bypasses
-   consistent hashing entirely — the LB has no idea what room they are
-   joining and routes by some default rule (round-robin? always-first?).
-   Two legacy clients meaning to join the same room will likely land on
-   different backends and never see each other (split-brain at the room
-   level). Acceptable for v1 transition window, with v2 making the prefix
-   mandatory? Or refuse legacy connections from the LB and only allow them
-   when the client connects to a backend directly?
-2. **Connection draining on health-flap.** When a backend transitions to
+1. **Connection draining on health-flap.** When a backend transitions to
    `Unhealthy` but its TCP socket is still open (e.g. the backend is hung,
    not crashed), should the LB proactively close all forwarded connections
    to it to force the clients to reconnect onto the new ring? Or leave
    existing connections in place until they fail naturally? Closing
    converges faster but creates noise during a flap.
-3. **`NETDRAW_BACKENDS` add/remove at runtime.** Re-reading the env var on
+2. **`NETDRAW_BACKENDS` add/remove at runtime.** Re-reading the env var on
    `SIGHUP` is one option; an admin endpoint on `/stats` (POST add/remove)
    is another. The brief is silent. v1 can ship with a process restart
    being the only way to change the backend set.
-4. **Prefix collision with `0x7B`.** Documented as a 0.4% per-room
-   probability that a v1 client looks like a legacy client to the server's
-   peek. Acceptable as-is, or do we want the client to retry-with-different-
-   marker (e.g. send a 5-byte sentinel like `0x00 H[31..0]`) to remove the
-   ambiguity entirely? The latter is a wire-format change and probably not
-   worth the complexity for one transitional release.
-5. **roomId canonicalization.** Currently any string is accepted. If two
-   clients disagree on case (`"Room-42"` vs `"room-42"`) they will hash to
-   different backends and never meet. Should the server normalize on
-   `JoinRoom` before storing, and reject mismatched casing? Or require the
-   client to canonicalize before hashing and joining?
+3. **roomId case-folding.** NFC normalization (decided above) handles
+   Unicode-equivalent forms but does not fold case: `"Room-42"` and
+   `"room-42"` still hash to different backends. Open whether v1 also
+   lowercases before hashing (friendlier to typos, mild surprise risk for
+   users who care about display casing) or leaves the `roomId` exactly as
+   the user typed it. Default: leave it; revisit if the demo trips on it.
 
 ## Out of scope
 
