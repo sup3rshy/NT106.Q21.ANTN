@@ -127,6 +127,15 @@ public partial class MainWindow : Window
         _vm.ConnectCommand.Execute(null);
     }
 
+    private void CmbDiscovered_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (CmbDiscovered.SelectedItem is NetDraw.Client.Services.DiscoveredServer s)
+        {
+            TxtServerIp.Text = s.Host;
+            TxtPort.Text = s.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+    }
+
     private void BtnJoinRoom_Click(object sender, RoutedEventArgs e)
     {
         _vm.RoomId = TxtRoomId.Text.Trim();
