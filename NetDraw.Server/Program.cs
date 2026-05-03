@@ -17,6 +17,7 @@ string? mcpProjectPath = ResolveMcpProjectPath();
 // Services
 var clientRegistry = new ClientRegistry();
 var roomService = new RoomService();
+var rateLimiter = new TokenBucketRateLimiter(capacity: 200, refillPerSec: 50);
 // Canvas dimensions must match the client's DrawCanvas (MainWindow.xaml) — currently 3000×2000.
 // Claude uses these numbers to pick sensible (cx, cy, size) params; if they mismatch, every
 // drawing lands in the wrong place on the real canvas.
@@ -31,7 +32,7 @@ _ = Task.Run(async () =>
 });
 
 // Pipeline
-var dispatcher = new MessageDispatcher();
+var dispatcher = new MessageDispatcher(rateLimiter);
 dispatcher.Register(new RoomHandler(roomService, clientRegistry));
 dispatcher.Register(new DrawHandler(roomService));
 dispatcher.Register(new ObjectHandler(roomService));
@@ -40,7 +41,7 @@ dispatcher.Register(new ChatHandler(roomService));
 dispatcher.Register(new AiHandler(roomService, mcpClient, fallbackParser));
 
 // Start server
-var server = new DrawServer(port, dispatcher, clientRegistry, roomService);
+var server = new DrawServer(port, dispatcher, clientRegistry, roomService, rateLimiter);
 Console.WriteLine($"[NetDraw Server] Starting on port {port}...");
 Console.WriteLine($"[NetDraw Server] Claude API key: {(string.IsNullOrWhiteSpace(apiKey) ? "(none — fallback parser only)" : "present")}");
 Console.WriteLine($"[NetDraw Server] MCP project:    {mcpProjectPath ?? "(not found)"}");

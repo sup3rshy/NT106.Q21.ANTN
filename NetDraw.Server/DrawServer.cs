@@ -14,13 +14,15 @@ public class DrawServer
     private readonly MessageDispatcher _dispatcher;
     private readonly IClientRegistry _clientRegistry;
     private readonly IRoomService _roomService;
+    private readonly IRateLimiter _rateLimiter;
 
-    public DrawServer(int port, MessageDispatcher dispatcher, IClientRegistry clientRegistry, IRoomService roomService)
+    public DrawServer(int port, MessageDispatcher dispatcher, IClientRegistry clientRegistry, IRoomService roomService, IRateLimiter rateLimiter)
     {
         _listener = new TcpListener(IPAddress.Any, port);
         _dispatcher = dispatcher;
         _clientRegistry = clientRegistry;
         _roomService = roomService;
+        _rateLimiter = rateLimiter;
     }
 
     public async Task StartAsync()
@@ -51,6 +53,7 @@ public class DrawServer
                 var roomId = _roomService.GetRoomIdForClient(client);
                 _roomService.RemoveUserFromRoom(client);
                 _clientRegistry.Unregister(client.UserId);
+                _rateLimiter.Forget(client);
 
                 if (roomId != null)
                 {

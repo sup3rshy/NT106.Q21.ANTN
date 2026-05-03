@@ -12,26 +12,35 @@ public class AiHandler : IMessageHandler
     private readonly IRoomService _roomService;
     private readonly IMcpClient _mcpClient;
     private readonly IAiParser _fallbackParser;
+    private readonly int _maxPromptLength;
 
-    public AiHandler(IRoomService roomService, IMcpClient mcpClient, IAiParser fallbackParser)
+    public AiHandler(IRoomService roomService, IMcpClient mcpClient, IAiParser fallbackParser, int maxPromptLength = 4000)
     {
         _roomService = roomService;
         _mcpClient = mcpClient;
         _fallbackParser = fallbackParser;
+        _maxPromptLength = maxPromptLength;
     }
 
     public bool CanHandle(MessageType type) => type is MessageType.AiCommand;
 
-    public Task HandleAsync(MessageType type, string senderId, string senderName, string roomId, JObject? payload, ClientHandler sender)
+    public async Task HandleAsync(MessageType type, string senderId, string senderName, string roomId, JObject? payload, ClientHandler sender)
     {
         var cmdPayload = MessageEnvelope.DeserializePayload<AiCommandPayload>(payload);
-        if (cmdPayload == null) return Task.CompletedTask;
+        if (cmdPayload == null) return;
+
+        if (cmdPayload.Prompt.Length > _maxPromptLength)
+        {
+            var err = NetMessage<ErrorPayload>.Create(MessageType.Error, "server", "Server", roomId,
+                new ErrorPayload { Message = $"AI prompt too long ({cmdPayload.Prompt.Length} > {_maxPromptLength})" });
+            await sender.SendAsync(err);
+            return;
+        }
 
         // *** CRITICAL: run AI work in background so the client message-loop is NOT blocked.
         // Without this, cursor moves / draw strokes / chat from this client all freeze while
         // waiting for the AI response (which can take 10–60 s with Claude API).
         _ = Task.Run(() => ProcessInBackgroundAsync(cmdPayload.Prompt, senderId, roomId));
-        return Task.CompletedTask;
     }
 
     private async Task ProcessInBackgroundAsync(string prompt, string senderId, string roomId)
