@@ -2,7 +2,9 @@
 
 ## Elevator
 
-Today, anyone running `tcpdump -i any -A 'tcp port 5000'` on a host that sees the LAN segment between a NetDraw client and the DrawServer reads every JSON envelope in the clear: `senderId`, chat messages, AI prompts, draw coordinates, the works. After this change the same capture shows TLS records — `Application Data` blobs of opaque bytes after a handshake — and the only metadata still legible is the SNI hostname in the `ClientHello`, the cert presented by the server, and record sizes/timing. Cert pinning on the client means a hostile cert (active MITM) is rejected even though the cert itself looks valid to OpenSSL: the client compares a SHA-256 thumbprint of the leaf against a value baked in via env var, and a mismatch terminates the handshake before any application bytes flow.
+Today, anyone running `tcpdump -i any -A 'tcp port 5000'` on a host that sees the LAN segment between a NetDraw client and the DrawServer reads every JSON envelope in the clear: `senderId`, chat messages, AI prompts, draw coordinates, the works. After this change the same capture shows TLS 1.3 records — `Application Data` blobs of opaque bytes after a handshake — and the only metadata still legible is the SNI hostname in the `ClientHello`, the leaf cert presented by the server (which the listener can re-fetch by connecting themselves), and record sizes/timing. Cert pinning on the client means a hostile cert (active MITM) is rejected even though the cert itself looks valid to OpenSSL: the client compares a SHA-256 thumbprint of the leaf against a value baked in via env var, and a mismatch terminates the handshake before any application bytes flow.
+
+The protocol floor is **TLS 1.3 only**, no fallback to 1.2. Phase 4 layers an application-level ML-KEM-768 key exchange on top of the TLS stream as defense in depth against capture-now-decrypt-later — see the Phase 4 honesty disclaimer for what that buys and what it does not.
 
 ## Threat model
 
@@ -11,15 +13,18 @@ What TLS-with-pinning defends against:
 - Passive eavesdropping on the same LAN (the demo case). A sniffer sees TLS records but not message contents.
 - Active MITM with a hostile cert (rogue AP, ARP spoofer, malicious LAN device that intercepts and re-presents traffic). The pinned thumbprint won't match the attacker's freshly-minted leaf, the validation callback returns `false`, the handshake aborts.
 - The session token (P4.T5, see `docs/design/session-token.md`) being sniffed off the wire and replayed from a separate TCP connection. With TLS the token never appears in plaintext on the network.
+- Protocol-downgrade attacks. Both sides advertise only `SslProtocols.Tls13`; a `ClientHello` that omits the TLS 1.3 supported_versions extension, or a `ServerHello` that tries to negotiate 1.2, terminates the handshake. The cost of locking out 1.2 is rejecting any client built against a pre-2018 .NET runtime, which is irrelevant here — every NetDraw component targets .NET 8+, and TLS 1.3 has been universally available in the .NET runtime since .NET 5 (Linux) / .NET 6 (Windows). There is no production reason to keep 1.2 enabled and a real reason to drop it: the entire 1.2-vs-1.3 negotiation surface, including the historical downgrade-prevention scheme baked into the `ServerHello.Random` sentinel, is gone if 1.2 is never on the table.
 
 What it does not defend against:
 
 - A compromised endpoint. If the attacker has code execution on the client or server box, they read the plaintext after `SslStream` decrypts. The token map and the cert private key both live in memory and on disk.
 - The cert private key leaking. `dev/server.pfx` is committed nowhere (see `.gitignore`) but it lives in plaintext on the operator's filesystem under PKCS#12 with a known dev password. Anyone who reads the file impersonates the server. Production rotation is out of scope for this PR.
 - Side channels. TLS does not hide record sizes or timing. An attacker who knows the JSON envelope shape can guess at message types from record-size patterns (a `Draw` is ~80–200 bytes, a `CanvasSnapshot` is kilobytes, a `Chat` varies by typing speed). Not a concern for the demo threat model.
-- Metadata in the handshake. SNI is sent in the clear (`localhost` in dev). The server's cert chain is sent in the clear in TLS 1.2; in TLS 1.3 it's encrypted, but the cert subject is still recoverable by anyone who can connect to the server. ECH would hide SNI; we are not deploying it.
+- Metadata in the handshake. SNI is sent in the clear (`localhost` in dev). The server's cert is encrypted in transit under TLS 1.3, but the cert subject is still recoverable by anyone who can themselves connect to the server. ECH would hide SNI; we are not deploying it.
 - The 4-byte LB prefix that precedes the handshake (see "LB-prefix ordering"). It is a hash of the room-id, sent in cleartext, and is observable to any network-layer attacker.
 - Pre-existing application-layer flaws. Authn and authz of users is the session token's job, not TLS's. TLS authenticates the *server*; the token authenticates the *user*.
+
+Post-quantum considerations. The TLS 1.3 key exchange used by .NET 8 is classical X25519 (and possibly secp256r1, depending on the platform's OpenSSL/SChannel build). A cryptographically-relevant quantum computer running Shor's algorithm breaks both, which means a passive adversary who records today's TLS records can decrypt them once such a machine exists — the "harvest now, decrypt later" threat. The IETF answer is the hybrid `X25519MLKEM768` group (codepoint `0x11EC`), supported by OpenSSL 3.5+ since 2025, but .NET 8 / 10's `SslStream` does not expose a `SupportedGroups` knob, so the application has no guarantee that a PQ group was negotiated and no way to log whether it was. Phase 4 addresses this at the application layer by running a separate ML-KEM-768 KEM *inside* the TLS stream and AES-256-GCM-wrapping every NetMessage with the resulting key. The wrapping key is derived from a fresh KEM exchange per connection, so a recorded session is safe for as long as ML-KEM-768 itself holds, independent of whether the underlying TLS X25519 ever falls.
 
 ## Cert tooling
 
@@ -112,7 +117,7 @@ else
         {
             ServerCertificate = _serverCert,
             ClientCertificateRequired = false,
-            EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+            EnabledSslProtocols = SslProtocols.Tls13,
             CertificateRevocationCheckMode = X509RevocationMode.NoCheck
         }, _cts.Token);
     }
@@ -158,7 +163,7 @@ public async Task<bool> ConnectAsync(string host, int port)
             await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
             {
                 TargetHost = host,
-                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                EnabledSslProtocols = SslProtocols.Tls13,
                 CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
                 RemoteCertificateValidationCallback = ValidatePinned
             });
@@ -282,7 +287,7 @@ For a single-slide before/after: side-by-side screenshots of the Wireshark "Foll
 
 ## Phases
 
-Three phases, sized small/small/medium. The split keeps Phase 1 demo-ready in isolation and lets the default-flip in Phase 2 happen as its own commit/PR for ease of review.
+Four phases, sized small/small/medium/medium. Phases 1–3 are the TLS work proper; Phase 4 is an optional, application-layer post-quantum overlay (educational defense-in-depth, not a production substitute for TLS-layer PQ). The split keeps Phase 1 demo-ready in isolation and lets the default-flip in Phase 2 happen as its own commit/PR for ease of review.
 
 **Phase 1 (S) — Cert script + server SslStream + client cert pin, default off, opt-in.**
 Ship `tools/gen-cert.sh`, the `SslStream` wrap on both sides, and the pinning callback. The single CLI flag is `--insecure` on both server and client. In Phase 1 it defaults to `true` (plaintext is the unchanged default; TLS is opted into by passing `--insecure=false`). CI and local dev keep working without the cert. The demo is run with `--insecure=false` on both sides; passing the demo is the acceptance criterion.
@@ -293,6 +298,67 @@ Ship `tools/gen-cert.sh`, the `SslStream` wrap on both sides, and the pinning ca
 **Phase 3 (M) — Cert rotation tooling.**
 Add the ability to re-issue the leaf and reload it on the running server fleet without dropping existing connections. Mechanics: the script grows a `--reissue` mode that produces a new pfx and pin without touching the CA (so old pins issued by previous reissues against the same CA still chain, even if pinning ignores the chain — this matters if a future PR adopts chain validation). The server gets a SIGHUP-equivalent (file watcher on `TLS_CERT_PATH`, or an admin endpoint) that swaps `SslServerAuthenticationOptions.ServerCertificate` for new connections only; in-flight `SslStream` instances keep using the cert they handshook with. Clients that have the old pin keep working until they reconnect; clients with the new pin work too if the server is presenting the new cert. The actual cut-over uses a brief two-pin window: clients accept either of two pins for a short period. Concrete plan deferred until the LB-fronted multi-backend deploy lands.
 
+**Phase 4 (M, optional) — Application-layer ML-KEM-768 overlay.**
+
+> This is application-layer crypto on top of TLS. The IETF-standard answer is `X25519MLKEM768` at the TLS layer, which we cannot enable until .NET exposes a `SupportedGroups` API. Phase 4 gives the team a demoable PQ story for the prof and real defense-in-depth against captured-now-decrypted-later attacks; it is NOT a production substitute for proper TLS-layer PQ. Drop Phase 4 immediately once .NET exposes the configuration knob.
+
+Depends on Phases 1–3 (needs the TLS 1.3 stream as carrier). Independent of session-token (PR #14) and load-balancer (PR #15): the LB prefix is *before* TLS, the session token is *inside* the PQ wrapping. Approximate size: one week.
+
+**Dependency.** `Org.BouncyCastle.Cryptography` 2.6.2 (the modern Bouncy Castle .NET fork by `bcgit`, ML-KEM stable since 2.5.0). Pinned to a single specific version in the implementer's csproj change; this is a real new third-party dependency, not stdlib, and not currently referenced anywhere in the solution.
+
+**Protocol.** After `AuthenticateAsServerAsync` / `AuthenticateAsClientAsync` returns and before any NetMessage flows, both sides run a single ML-KEM-768 exchange over the (now TLS-protected) stream:
+
+1. Server generates a fresh ML-KEM-768 keypair on connection accept. Per-connection — not rotated mid-connection, not shared across connections. Cheap (sub-millisecond on commodity hardware) and means a key compromise burns one session, not the fleet.
+2. Server writes its 1184-byte ML-KEM-768 public key to the stream.
+3. Client encapsulates against that public key (`MLKemEncapsulator.Encapsulate`), producing a 32-byte shared secret and a 1088-byte ciphertext. Client writes the ciphertext to the stream.
+4. Server decapsulates the ciphertext (`MLKemDecapsulator.Decapsulate`) and recovers the same 32-byte shared secret.
+5. Both sides feed the shared secret into HKDF-SHA256 with `info = "netdraw-pq-v1"` and an empty salt, extracting 44 bytes: 32 for the AES-256-GCM key, 12 for the base nonce.
+6. From here on, every NetMessage envelope is wrapped: `[12-byte nonce][AES-GCM ciphertext][16-byte tag]` framed by a single big-endian uint32 length prefix on the wire (a standard length-prefixed binary frame; the inner JSON+`\n` framing is preserved inside the ciphertext).
+
+Nonce policy: `nonce_i = base_nonce XOR i` where `i` is a 64-bit big-endian counter placed in the low 8 bytes of the 12-byte nonce field, with separate counters per direction (client-to-server and server-to-client each start at 0). The XOR-counter scheme is the standard NIST SP 800-38D construction for AES-GCM with a derived deterministic IV; per-direction counters mean the two halves of the duplex never collide. Counter overflow ends the connection — at 2^64 messages it will not happen in any realistic session, but the encoder asserts.
+
+Key rotation policy: per-connection only. A new TCP connect → new ML-KEM keypair → new shared secret → new HKDF output. There is no in-connection rekey. If long-running connections become a concern (hours of continuous draw activity), a future revision can add a rekey trigger on either a message-count or wall-clock threshold; not in 4.0.
+
+**Wire format.** Raw binary frame (length prefix + nonce + ciphertext + tag), not JSON+base64. The existing newline-delimited JSON model lives *inside* the encrypted payload and is unchanged from the application's point of view. Two reasons to pick raw over JSON+base64:
+
+1. AES-GCM ciphertext and the GCM tag are pure binary; base64-encoding them costs roughly 33% on the wire for no gain (the receiver immediately base64-decodes back to the same bytes the sender had). The newline-delimited JSON convention exists because plaintext JSON is text; the wrapped envelope is not.
+2. The PQ wrapper is a single layer of framing — length prefix in, length-prefixed payload out — and a binary frame keeps the parser to one `ReadExactlyAsync(4)` + one `ReadExactlyAsync(length)`. Mixing JSON at this layer would require a streaming JSON parser on what is morally a packet boundary.
+
+The cost is that the `ListenAsync` read loop on both sides changes shape: when PQ is on, it reads length-prefixed frames, AES-GCM-decrypts each, then feeds the plaintext into the same UTF-8 + newline-splitter that exists today. When PQ is off, the loop is unchanged.
+
+**Failure modes.**
+
+- BouncyCastle throws on encapsulate/decapsulate (malformed public key, malformed ciphertext, internal state error). Both sides log at `LogError` with the exception type and tear the connection down — no fallback to TLS-only mid-handshake, because a tampered KEM exchange is exactly the threat we are trying to detect.
+- AES-GCM tag mismatch on any wrapped message. Same response: log and tear down. A single tag failure means either bit-flipping in transit (TCP would normally have caught this; if it didn't, something is up) or a key desync, both of which mean the rest of the connection is uninterpretable.
+- Client lacks BouncyCastle, or the user passes `--no-pq`. The client skips the ML-KEM handshake and the server, if its own `--require-pq` is off (default in 4.0), falls back to TLS-only for that connection. Once the default flips in a later phase, `--require-pq` defaults to on and the server hangs up on no-PQ clients.
+
+**Demo angle.** Both sides log at `LogInformation` once the shared secret is derived: `[PQ] session key established (first 8 bytes: ab cd ef 12 34 56 78 9a)`. The first-8-bytes preview lets a demo viewer see that client and server agreed on the same key without exposing the whole thing. Optional companion script `tools/pq-decoy.py` opens a TCP+TLS connection, completes the TLS 1.3 handshake, then refuses to do the ML-KEM exchange — when the server is launched with `--require-pq` the script prints the server's tear-down log line for the slide.
+
+**Sequence diagram.**
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant L as Load Balancer (L4)
+    participant S as DrawServer
+
+    C->>L: TCP SYN
+    L->>S: TCP SYN
+    Note over C,S: TCP handshake completes
+    C->>L: 4-byte room-id hash (cleartext)
+    L->>S: 4-byte room-id hash (forwarded)
+    Note over C,S: prefix consumed
+    C->>S: TLS 1.3 ClientHello (via L, opaque)
+    S->>C: TLS 1.3 ServerHello + EncryptedExtensions + Cert + Finished
+    C->>S: TLS Finished
+    Note over C,S: TLS 1.3 handshake completes (X25519 inside)
+    S->>C: ML-KEM-768 public key (1184 bytes, inside TLS)
+    C->>S: ML-KEM-768 ciphertext (1088 bytes, inside TLS)
+    Note over C,S: HKDF-SHA256 → AES-256-GCM key + base nonce
+    C->>S: [len][nonce][AES-GCM(JoinRoom JSON)][tag]
+    S->>C: [len][nonce][AES-GCM(CanvasSnapshot JSON)][tag]
+```
+
 ## Open questions
 
 1. Pin storage on the client: env var only (current plan) vs introducing `appsettings.json` plumbing (`Microsoft.Extensions.Configuration` is not currently referenced from `NetDraw.Client/`; standing it up would touch DI in `App.xaml.cs`). Env var wins for simplicity now; if other client config grows, revisit.
@@ -300,6 +366,7 @@ Add the ability to re-issue the leaf and reload it on the running server fleet w
 3. Demo ergonomics: should `tools/gen-cert.sh` also write a `dev/run-server.env` and a `dev/run-client.env` file with the right `export` lines, so reviewers can `source` them instead of copy-pasting? Trivial to add, but introduces a small "is this for the demo or for prod?" branding concern in `dev/`.
 4. SNI value: pass the configured `host` (current plan, demo-honest) vs always pass a fixed sentinel like `netdraw-dev` so packet captures look uniform across runs. The first is more realistic; the second makes the demo more reproducible across operators.
 5. Pre-existing client UTF-8 decoder bug (`NetworkService.ListenAsync` uses a stateless `Encoding.UTF8.GetString` per chunk while the server uses a stateful `Decoder`). Orthogonal to TLS and present today; mention here so it's tracked, but not part of this PR's scope.
+6. When does .NET expose TLS PQ groups (`SupportedGroups` configuration on `SslClientAuthenticationOptions` / `SslServerAuthenticationOptions`, allowing `X25519MLKEM768` to be required at the TLS layer)? Most likely target is .NET 11 in late 2026, tracking the dotnet/runtime issue for hybrid PQ KEMs. Once that lands and is available on every platform we deploy to, drop Phase 4 entirely — the application-layer overlay is strictly worse than the standardized TLS construction (no formal analysis of the composition, no negotiation, no algorithm-agility framework, more code to maintain).
 
 ## Out of scope
 
@@ -310,3 +377,4 @@ Add the ability to re-issue the leaf and reload it on the running server fleet w
 - TLS for the McpServer ↔ DrawServer hop (port 5001). Localhost-only by default; if the McpServer is deployed remotely it gets its own design pass.
 - TLS for the LAN beacon UDP traffic (`docs/design/lan-discovery-and-server-cache.md`). The beacon is broadcast metadata by design.
 - Encryption of data at rest (room snapshots, AI prompt logs, etc.). TLS protects in-transit only.
+- TLS-layer post-quantum KEX via the `SupportedGroups` API (`X25519MLKEM768`, codepoint `0x11EC`). Waiting on the .NET runtime to expose the configuration knob; tracked in Open Questions. The Phase 4 overlay is the application-layer stand-in until then.
