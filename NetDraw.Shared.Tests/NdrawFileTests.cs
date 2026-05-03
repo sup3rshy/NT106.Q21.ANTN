@@ -353,6 +353,56 @@ public class NdrawFileTests
         }
     }
 
+    [Fact]
+    public void Load_Throws_On_Null_Actions_Payload()
+    {
+        var path = NewTempPath();
+        try
+        {
+            using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
+            using (var archive = new ZipArchive(fs, ZipArchiveMode.Create))
+            {
+                var m = archive.CreateEntry("manifest.json");
+                using (var w = new StreamWriter(m.Open()))
+                    w.Write("{ \"version\": 1, \"createdAt\": \"2026-05-03T00:00:00+00:00\", \"actionCount\": 0 }");
+                var a = archive.CreateEntry("actions.json");
+                using (var w = new StreamWriter(a.Open())) w.Write("null");
+            }
+
+            var ex = Assert.Throws<InvalidDataException>(() => NdrawFile.Load(path));
+            Assert.Contains("null payload", ex.Message);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Load_Throws_On_ActionCount_Mismatch()
+    {
+        var path = NewTempPath();
+        try
+        {
+            using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write))
+            using (var archive = new ZipArchive(fs, ZipArchiveMode.Create))
+            {
+                var m = archive.CreateEntry("manifest.json");
+                using (var w = new StreamWriter(m.Open()))
+                    w.Write("{ \"version\": 1, \"createdAt\": \"2026-05-03T00:00:00+00:00\", \"actionCount\": 5 }");
+                var a = archive.CreateEntry("actions.json");
+                using (var w = new StreamWriter(a.Open())) w.Write("[]");
+            }
+
+            var ex = Assert.Throws<InvalidDataException>(() => NdrawFile.Load(path));
+            Assert.Contains("does not match", ex.Message);
+        }
+        finally
+        {
+            if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
     private static void WriteManifestAndEmptyActions(string path, string manifestJson)
     {
         using var fs = new FileStream(path, FileMode.Create, FileAccess.Write);

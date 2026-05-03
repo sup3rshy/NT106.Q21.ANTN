@@ -118,11 +118,18 @@ public static class NdrawFile
                 throw new InvalidDataException("Malformed actions.json", ex);
             }
 
+            if (actions is null)
+                throw new InvalidDataException("Malformed actions.json: null payload");
+
+            if (manifest.ActionCount != actions.Count)
+                throw new InvalidDataException(
+                    $"Manifest actionCount ({manifest.ActionCount}) does not match actions.json length ({actions.Count})");
+
             return new NdrawDocument
             {
                 Version = manifest.Version,
                 CreatedAt = manifest.CreatedAt,
-                Actions = actions ?? new List<DrawActionBase>()
+                Actions = actions
             };
         }
     }
