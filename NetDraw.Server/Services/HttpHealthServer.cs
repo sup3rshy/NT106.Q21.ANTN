@@ -9,14 +9,12 @@ public class HttpHealthServer
 {
     private readonly int _port;
     private readonly IRoomService _roomService;
-    private readonly IClientRegistry _clientRegistry;
     private readonly DateTimeOffset _startedAt;
 
-    public HttpHealthServer(int port, IRoomService roomService, IClientRegistry clientRegistry)
+    public HttpHealthServer(int port, IRoomService roomService)
     {
         _port = port;
         _roomService = roomService;
-        _clientRegistry = clientRegistry;
         _startedAt = DateTimeOffset.UtcNow;
     }
 

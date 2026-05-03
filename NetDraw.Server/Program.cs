@@ -73,7 +73,7 @@ dispatcher.Register(new AiHandler(roomService, mcpClient, fallbackParser, logger
 
 // Health endpoint for the load balancer; port via HEALTH_PORT to avoid changing the positional CLI.
 int healthPort = int.TryParse(Environment.GetEnvironmentVariable("HEALTH_PORT"), out var hp) ? hp : 5050;
-var healthServer = new HttpHealthServer(healthPort, roomService, clientRegistry);
+var healthServer = new HttpHealthServer(healthPort, roomService);
 var healthCts = new CancellationTokenSource();
 _ = Task.Run(() => healthServer.RunAsync(healthCts.Token));
 
