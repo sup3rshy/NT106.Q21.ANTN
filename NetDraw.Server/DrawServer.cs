@@ -65,7 +65,7 @@ public class DrawServer
             {
                 break;
             }
-            var handler = new ClientHandler(tcpClient, _loggerFactory.CreateLogger<ClientHandler>());
+            var handler = new ClientHandler(tcpClient, tcpClient.GetStream(), _loggerFactory.CreateLogger<ClientHandler>());
 
             handler.MessageReceived += async (sender, envelope) =>
             {
