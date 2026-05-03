@@ -87,7 +87,8 @@ public class ClientHandler
                         MessageType.Error, "server", "Server", envelope.RoomId,
                         new ErrorPayload { Message = $"Protocol version {envelope.Version} not supported (server expects {ProtocolVersion.Current})" });
                     await SendAsync(err);
-                    continue;
+                    _isConnected = false;
+                    break;
                 }
 
                 if (MessageReceived != null)
