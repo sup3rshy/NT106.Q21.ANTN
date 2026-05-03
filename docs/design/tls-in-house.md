@@ -137,6 +137,8 @@ var handler = new ClientHandler(tcpClient, stream, _loggerFactory.CreateLogger<C
 
 `ClientHandler` change: ctor becomes `(TcpClient, Stream, ILogger)`, the field type changes from `NetworkStream` to `Stream`. The `TcpClient` reference is kept only for `RemoteEndPoint` logging and for the `Close()` call in `TearDownAsync` — every read/write goes through `_stream`, which works the same way for `NetworkStream` and `SslStream`. The existing read loop in `ListenAsync` is byte-stream-shaped (`_stream.ReadAsync(buffer, ...)` with a stateful UTF-8 `Decoder`) and needs no further change: `SslStream` exposes the same `Stream` surface and the existing newline framing happens above the TLS layer.
 
+What `SslStream` actually does on the rejection paths the threat-model section mentions: with `EnabledSslProtocols = SslProtocols.Tls13`, a TLS 1.2-only ClientHello fails handshake; .NET sends a `protocol_version` alert (TLS alert code 70) before closing the socket, so the client gets a diagnosable error rather than a bare RST. A raw plaintext connection that arrives after the LB prefix has been read fails parsing of the byte stream as a ClientHello and `AuthenticateAsServerAsync` throws `AuthenticationException`, which the catch above logs and disposes. Either way the LogWarning line is the only signal in the demo; that's intentional (no plaintext dump of the rejected bytes).
+
 `Program.cs` reads `TLS_CERT_PATH` and `TLS_CERT_PASSWORD` at startup and constructs the cert with `X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.PersistKeySet`. If `--insecure` is on the command line, the cert isn't loaded and `_serverCert` stays null. If `--insecure` is off and the env vars are missing or the cert file unreadable, the server logs the error and exits non-zero — a TLS-on server that can't load its cert is a misconfiguration, not a fall-back-to-plaintext condition.
 
 `ReadLbPrefixAsync` is four bytes off the raw stream into a small buffer that's then discarded. The server doesn't act on the prefix in this PR (the LB design owns prefix-routing; the server is the terminus and the prefix is informational at the TCP layer only). When the LB design lands, the server may keep the bytes for room-id sanity checking; the wire shape doesn't change.
@@ -304,33 +306,42 @@ Add the ability to re-issue the leaf and reload it on the running server fleet w
 
 Depends on Phases 1–3 (needs the TLS 1.3 stream as carrier). Independent of session-token (PR #14) and load-balancer (PR #15): the LB prefix is *before* TLS, the session token is *inside* the PQ wrapping. Approximate size: one week.
 
-**Dependency.** `Org.BouncyCastle.Cryptography` 2.6.2 (the modern Bouncy Castle .NET fork by `bcgit`, ML-KEM stable since 2.5.0). Pinned to a single specific version in the implementer's csproj change; this is a real new third-party dependency, not stdlib, and not currently referenced anywhere in the solution.
+**Dependency.** NuGet package `BouncyCastle.Cryptography` (the namespace is `Org.BouncyCastle`; the package id is not), the bcgit/bc-csharp fork. Pinned to whatever the latest stable release is at implementation time — `2.6.2` (2025-07-31) was current at design time and exposes the ML-KEM API used here; ML-KEM has been stable in this package since `2.5.0`. The implementer should not pin to an older version "for stability"; pin to current stable. This is a new third-party dependency, not stdlib, and not currently referenced anywhere in the solution.
 
 **Protocol.** After `AuthenticateAsServerAsync` / `AuthenticateAsClientAsync` returns and before any NetMessage flows, both sides run a single ML-KEM-768 exchange over the (now TLS-protected) stream:
 
 1. Server generates a fresh ML-KEM-768 keypair on connection accept. Per-connection — not rotated mid-connection, not shared across connections. Cheap (sub-millisecond on commodity hardware) and means a key compromise burns one session, not the fleet.
 2. Server writes its 1184-byte ML-KEM-768 public key to the stream.
-3. Client encapsulates against that public key (`MLKemEncapsulator.Encapsulate`), producing a 32-byte shared secret and a 1088-byte ciphertext. Client writes the ciphertext to the stream.
-4. Server decapsulates the ciphertext (`MLKemDecapsulator.Decapsulate`) and recovers the same 32-byte shared secret.
-5. Both sides feed the shared secret into HKDF-SHA256 with `info = "netdraw-pq-v1"` and an empty salt, extracting 44 bytes: 32 for the AES-256-GCM key, 12 for the base nonce.
-6. From here on, every NetMessage envelope is wrapped: `[12-byte nonce][AES-GCM ciphertext][16-byte tag]` framed by a single big-endian uint32 length prefix on the wire (a standard length-prefixed binary frame; the inner JSON+`\n` framing is preserved inside the ciphertext).
+3. Client encapsulates against that public key with `MLKemEncapsulator` (instantiated against the received `MLKemPublicKeyParameters`), producing a 32-byte shared secret and a 1088-byte ciphertext. Client writes the ciphertext to the stream.
+4. Server decapsulates the ciphertext with `MLKemDecapsulator` (holding the secret-key parameters from `MLKemKeyPairGenerator` initialized with `MLKemKeyGenerationParameters` against `MLKemParameters.ml_kem_768`) and recovers the same 32-byte shared secret.
+5. Both sides feed the shared secret into HKDF-SHA256 twice with empty salt and direction-bound info strings, deriving two independent 44-byte streams:
+   - `info = "netdraw-pq-v1 c2s"` → 32-byte key `K_c2s` + 12-byte base nonce `N_c2s` (used to encrypt client→server, decrypt server-side)
+   - `info = "netdraw-pq-v1 s2c"` → 32-byte key `K_s2c` + 12-byte base nonce `N_s2c` (used to encrypt server→client, decrypt client-side)
 
-Nonce policy: `nonce_i = base_nonce XOR i` where `i` is a 64-bit big-endian counter placed in the low 8 bytes of the 12-byte nonce field, with separate counters per direction (client-to-server and server-to-client each start at 0). The XOR-counter scheme is the standard NIST SP 800-38D construction for AES-GCM with a derived deterministic IV; per-direction counters mean the two halves of the duplex never collide. Counter overflow ends the connection — at 2^64 messages it will not happen in any realistic session, but the encoder asserts.
+   Per-direction keys are required, not optional. With a single shared key, the symmetric counter scheme below would cause C→S message 0 and S→C message 0 to be encrypted under the same (key, nonce) — the AES-GCM forbidden attack (Joux 2006), which both reveals the XOR of plaintexts and recovers the GHASH authentication subkey, letting an attacker forge arbitrary ciphertexts under that key for the rest of the session. Domain-separated HKDF info strings are the standard fix (TLS 1.3, QUIC, Noise all do equivalent).
+
+6. From here on, every NetMessage envelope is wrapped: `[u32 BE length][AES-GCM ciphertext][16-byte tag]` on the wire. The nonce is NOT on the wire — both sides derive it deterministically from their own per-direction counter (see next paragraph). The inner JSON+`\n` framing is preserved inside the ciphertext.
+
+Nonce policy: `nonce_i = base_nonce XOR i_be` where `i_be` is a 64-bit big-endian counter placed in the low 8 bytes of a 12-byte field (high 4 bytes are the same as `base_nonce`'s high 4 bytes, so the XOR only mutates the low 8). Each direction uses its own counter starting at 0 and its own `base_nonce` from the HKDF stream above. Because the two directions have independent (key, base_nonce) pairs, their nonce spaces are independent by construction; even if the counters happen to coincide, the keys do not. Counter overflow ends the connection — at 2^64 messages per direction it will not happen in any realistic session, but the encoder asserts on increment past `0xFFFFFFFFFFFFFFFE`.
+
+AAD: every `AesGcm.Encrypt`/`Decrypt` call passes the 4-byte big-endian length prefix as additional authenticated data. Without this, an on-path attacker (or a corrupted middlebox) can rewrite the length prefix to truncate or extend a frame and the GCM tag check still passes against the ciphertext bytes the receiver actually consumes — the receiver short-reads or over-reads against a different boundary than the sender intended. AAD-binding the length prefix closes that gap. The receiver computes the AAD from the bytes it has just read off the wire (so a tampered length is the AAD it gets, and the tag check fails as expected).
 
 Key rotation policy: per-connection only. A new TCP connect → new ML-KEM keypair → new shared secret → new HKDF output. There is no in-connection rekey. If long-running connections become a concern (hours of continuous draw activity), a future revision can add a rekey trigger on either a message-count or wall-clock threshold; not in 4.0.
 
-**Wire format.** Raw binary frame (length prefix + nonce + ciphertext + tag), not JSON+base64. The existing newline-delimited JSON model lives *inside* the encrypted payload and is unchanged from the application's point of view. Two reasons to pick raw over JSON+base64:
+**Wire format.** Raw binary frame (length prefix + ciphertext + tag), not JSON+base64. `length = |ciphertext| + 16` (the GCM tag); the 4-byte length field itself is not counted in the value. The receiver caps `length` at 16 MiB and tears the connection down on anything larger so a malicious or buggy peer cannot drive a 4 GiB allocation off a single u32. The existing newline-delimited JSON model lives *inside* the encrypted payload and is unchanged from the application's point of view. Two reasons to pick raw over JSON+base64:
 
 1. AES-GCM ciphertext and the GCM tag are pure binary; base64-encoding them costs roughly 33% on the wire for no gain (the receiver immediately base64-decodes back to the same bytes the sender had). The newline-delimited JSON convention exists because plaintext JSON is text; the wrapped envelope is not.
 2. The PQ wrapper is a single layer of framing — length prefix in, length-prefixed payload out — and a binary frame keeps the parser to one `ReadExactlyAsync(4)` + one `ReadExactlyAsync(length)`. Mixing JSON at this layer would require a streaming JSON parser on what is morally a packet boundary.
 
-The cost is that the `ListenAsync` read loop on both sides changes shape: when PQ is on, it reads length-prefixed frames, AES-GCM-decrypts each, then feeds the plaintext into the same UTF-8 + newline-splitter that exists today. When PQ is off, the loop is unchanged.
+The cost is that the `ListenAsync` read loop on both sides changes shape: when PQ is on, it reads length-prefixed frames, AES-GCM-decrypts each (passing the just-read length prefix as AAD and using its own per-direction key + counter-derived nonce), then feeds the plaintext into the same UTF-8 + newline-splitter that exists today. When PQ is off, the loop is unchanged.
 
 **Failure modes.**
 
 - BouncyCastle throws on encapsulate/decapsulate (malformed public key, malformed ciphertext, internal state error). Both sides log at `LogError` with the exception type and tear the connection down — no fallback to TLS-only mid-handshake, because a tampered KEM exchange is exactly the threat we are trying to detect.
-- AES-GCM tag mismatch on any wrapped message. Same response: log and tear down. A single tag failure means either bit-flipping in transit (TCP would normally have caught this; if it didn't, something is up) or a key desync, both of which mean the rest of the connection is uninterpretable.
-- Client lacks BouncyCastle, or the user passes `--no-pq`. The client skips the ML-KEM handshake and the server, if its own `--require-pq` is off (default in 4.0), falls back to TLS-only for that connection. Once the default flips in a later phase, `--require-pq` defaults to on and the server hangs up on no-PQ clients.
+- AES-GCM tag mismatch on any wrapped message. Same response: log and tear down. A single tag failure means either bit-flipping in transit (TCP would normally have caught this; if it didn't, something is up), the AAD-bound length prefix was tampered, or a key desync — all of which mean the rest of the connection is uninterpretable.
+- Client lacks BouncyCastle, or the user passes `--no-pq`. The client skips the ML-KEM handshake and the server, if its own `--require-pq` is off (default in 4.0), falls back to TLS-only for that connection. Once the default flips in a later phase, `--require-pq` defaults to on and the server hangs up on no-PQ clients. In every case the negotiated mode is logged at `LogInformation` on both sides — `mode=tls+pq` or `mode=tls-only` — so a demo viewer can tell at a glance which connections actually exercised the ML-KEM path.
+- `--insecure` and `--pq` are mutually exclusive at startup. The PQ overlay's MITM resistance depends entirely on the underlying TLS authenticating the server (the ML-KEM public key is sent unauthenticated inside the TLS stream); over a plaintext socket an on-path attacker trivially substitutes a rogue public key and the resulting "PQ" channel is theirs. The server and client both refuse to start when both flags are passed, and exit non-zero with a clear message: `--insecure cannot be combined with --pq; pick one.`
+- Connection close: both sides call `CryptographicOperations.ZeroMemory` on the four byte arrays (`K_c2s`, `K_s2c`, `N_c2s`, `N_s2c`) in the disposer. Belt-and-suspenders against a future bug that holds the wrapper instance past EndOfStream.
 
 **Demo angle.** Both sides log at `LogInformation` once the shared secret is derived: `[PQ] session key established (first 8 bytes: ab cd ef 12 34 56 78 9a)`. The first-8-bytes preview lets a demo viewer see that client and server agreed on the same key without exposing the whole thing. Optional companion script `tools/pq-decoy.py` opens a TCP+TLS connection, completes the TLS 1.3 handshake, then refuses to do the ML-KEM exchange — when the server is launched with `--require-pq` the script prints the server's tear-down log line for the slide.
 
@@ -354,9 +365,9 @@ sequenceDiagram
     Note over C,S: TLS 1.3 handshake completes (X25519 inside)
     S->>C: ML-KEM-768 public key (1184 bytes, inside TLS)
     C->>S: ML-KEM-768 ciphertext (1088 bytes, inside TLS)
-    Note over C,S: HKDF-SHA256 → AES-256-GCM key + base nonce
-    C->>S: [len][nonce][AES-GCM(JoinRoom JSON)][tag]
-    S->>C: [len][nonce][AES-GCM(CanvasSnapshot JSON)][tag]
+    Note over C,S: HKDF-SHA256 → per-direction (K, base_nonce)
+    C->>S: [len][AES-GCM(JoinRoom JSON, K_c2s, nonce_0)][tag]  AAD=len
+    S->>C: [len][AES-GCM(CanvasSnapshot JSON, K_s2c, nonce_0)][tag]  AAD=len
 ```
 
 ## Open questions
