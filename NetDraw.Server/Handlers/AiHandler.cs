@@ -30,16 +30,16 @@ public class AiHandler : IMessageHandler
 
     public bool CanHandle(MessageType type) => type is MessageType.AiCommand;
 
-    public async Task HandleAsync(MessageType type, string senderId, string senderName, string roomId, JObject? payload, ClientHandler sender)
+    public async Task HandleAsync(MessageEnvelope.Envelope envelope, ClientHandler sender)
     {
-        var cmdPayload = MessageEnvelope.DeserializePayload<AiCommandPayload>(payload);
+        var cmdPayload = MessageEnvelope.DeserializePayload<AiCommandPayload>(envelope.RawPayload);
         if (cmdPayload == null) return;
 
         var prompt = cmdPayload.Prompt ?? string.Empty;
         var promptBytes = Encoding.UTF8.GetByteCount(prompt);
         if (promptBytes > _maxPromptBytes)
         {
-            var err = NetMessage<ErrorPayload>.Create(MessageType.Error, "server", "Server", roomId,
+            var err = NetMessage<ErrorPayload>.Create(MessageType.Error, "server", "Server", envelope.RoomId,
                 new ErrorPayload { Message = $"AI prompt too long ({promptBytes} > {_maxPromptBytes} bytes)" });
             await sender.SendAsync(err);
             return;
@@ -48,7 +48,7 @@ public class AiHandler : IMessageHandler
         // *** CRITICAL: run AI work in background so the client message-loop is NOT blocked.
         // Without this, cursor moves / draw strokes / chat from this client all freeze while
         // waiting for the AI response (which can take 10–60 s with Claude API).
-        _ = Task.Run(() => ProcessInBackgroundAsync(prompt, senderId, roomId));
+        _ = Task.Run(() => ProcessInBackgroundAsync(prompt, envelope.SenderId, envelope.RoomId));
     }
 
     private async Task ProcessInBackgroundAsync(string prompt, string senderId, string roomId)

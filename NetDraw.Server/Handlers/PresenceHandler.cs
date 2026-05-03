@@ -14,11 +14,11 @@ public class PresenceHandler : IMessageHandler
 
     public bool CanHandle(MessageType type) => type is MessageType.CursorMove;
 
-    public async Task HandleAsync(MessageType type, string senderId, string senderName, string roomId, JObject? payload, ClientHandler sender)
+    public async Task HandleAsync(MessageEnvelope.Envelope envelope, ClientHandler sender)
     {
-        var cursorPayload = MessageEnvelope.DeserializePayload<CursorPayload>(payload);
+        var cursorPayload = MessageEnvelope.DeserializePayload<CursorPayload>(envelope.RawPayload);
         if (cursorPayload == null) return;
-        var msg = NetMessage<CursorPayload>.Create(MessageType.CursorMove, senderId, sender.UserName, roomId, cursorPayload);
-        await _roomService.BroadcastToRoomAsync(roomId, msg, exclude: sender);
+        var msg = NetMessage<CursorPayload>.Create(MessageType.CursorMove, envelope.SenderId, sender.UserName, envelope.RoomId, cursorPayload);
+        await _roomService.BroadcastToRoomAsync(envelope.RoomId, msg, exclude: sender);
     }
 }

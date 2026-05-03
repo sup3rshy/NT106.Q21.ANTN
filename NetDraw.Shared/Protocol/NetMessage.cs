@@ -33,6 +33,9 @@ public class NetMessage<T> where T : IPayload
     [JsonProperty("roomId")]
     public string RoomId { get; set; } = string.Empty;
 
+    [JsonProperty("sessionToken")]
+    public string SessionToken { get; set; } = string.Empty;
+
     [JsonProperty("timestamp")]
     public long Timestamp { get; set; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 

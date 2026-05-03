@@ -16,18 +16,20 @@ public class DrawServer
     private readonly IClientRegistry _clientRegistry;
     private readonly IRoomService _roomService;
     private readonly IRateLimiter _rateLimiter;
+    private readonly ISessionTokenStore _sessionTokenStore;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DrawServer> _logger;
     private readonly CancellationTokenSource _cts = new();
     private bool _bound;
 
-    public DrawServer(int port, MessageDispatcher dispatcher, IClientRegistry clientRegistry, IRoomService roomService, IRateLimiter rateLimiter, ILoggerFactory loggerFactory)
+    public DrawServer(int port, MessageDispatcher dispatcher, IClientRegistry clientRegistry, IRoomService roomService, IRateLimiter rateLimiter, ISessionTokenStore sessionTokenStore, ILoggerFactory loggerFactory)
     {
         _listener = new TcpListener(IPAddress.Any, port);
         _dispatcher = dispatcher;
         _clientRegistry = clientRegistry;
         _roomService = roomService;
         _rateLimiter = rateLimiter;
+        _sessionTokenStore = sessionTokenStore;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<DrawServer>();
     }
@@ -65,15 +67,15 @@ public class DrawServer
             }
             var handler = new ClientHandler(tcpClient, _loggerFactory.CreateLogger<ClientHandler>());
 
-            handler.MessageReceived += async (sender, type, senderId, senderName, roomId, payload) =>
+            handler.MessageReceived += async (sender, envelope) =>
             {
                 try
                 {
-                    await _dispatcher.DispatchAsync(type, senderId, senderName, roomId, payload, sender);
+                    await _dispatcher.DispatchAsync(envelope, sender);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Dispatch error for {MessageType} from {SenderId}", type, senderId);
+                    _logger.LogError(ex, "Dispatch error for {MessageType} from {SenderId}", envelope.Type, envelope.SenderId);
                 }
             };
 
@@ -85,6 +87,7 @@ public class DrawServer
                 _clientRegistry.Unregister(client.UserId);
                 _rateLimiter.Forget(client);
                 _dispatcher.ForgetClient(client);
+                _sessionTokenStore.MarkOrphaned(client);
 
                 if (roomId != null)
                 {

@@ -8,6 +8,7 @@ public interface INetworkService
 {
     string ClientId { get; }
     bool IsConnected { get; }
+    string SessionToken { get; set; }
     Task<bool> ConnectAsync(string host, int port);
     void Disconnect();
     Task SendAsync<T>(NetMessage<T> message) where T : IPayload;

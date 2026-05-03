@@ -30,7 +30,8 @@ public static class MessageEnvelope
         string RoomId,
         long Timestamp,
         JObject? RawPayload,
-        int Version);
+        int Version,
+        string SessionToken);
 
     /// <summary>
     /// Parse only the envelope fields from a JSON message string.
@@ -53,14 +54,15 @@ public static class MessageEnvelope
                 return null;
             }
 
-            var senderId   = jObject["senderId"]?.Value<string>()   ?? string.Empty;
-            var senderName = jObject["senderName"]?.Value<string>() ?? string.Empty;
-            var roomId     = jObject["roomId"]?.Value<string>()     ?? string.Empty;
-            var timestamp  = jObject["timestamp"]?.Value<long>()    ?? 0L;
-            var version    = jObject["version"]?.Value<int>()       ?? 0;
-            var rawPayload = jObject["payload"] as JObject;
+            var senderId     = jObject["senderId"]?.Value<string>()     ?? string.Empty;
+            var senderName   = jObject["senderName"]?.Value<string>()   ?? string.Empty;
+            var roomId       = jObject["roomId"]?.Value<string>()       ?? string.Empty;
+            var timestamp    = jObject["timestamp"]?.Value<long>()      ?? 0L;
+            var version      = jObject["version"]?.Value<int>()         ?? 0;
+            var sessionToken = jObject["sessionToken"]?.Value<string>() ?? string.Empty;
+            var rawPayload   = jObject["payload"] as JObject;
 
-            return new Envelope(type, senderId, senderName, roomId, timestamp, rawPayload, version);
+            return new Envelope(type, senderId, senderName, roomId, timestamp, rawPayload, version, sessionToken);
         }
         catch
         {

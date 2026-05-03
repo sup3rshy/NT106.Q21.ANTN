@@ -43,6 +43,7 @@ var startupLogger = loggerFactory.CreateLogger("NetDraw.Startup");
 // Services
 var clientRegistry = new ClientRegistry();
 var roomService = new RoomService();
+var sessionTokenStore = new SessionTokenStore();
 
 int rateCapacity = ReadIntEnv("RATE_LIMIT_CAPACITY", 200, min: 1);
 double rateRefill = ReadDoubleEnv("RATE_LIMIT_REFILL_PER_SEC", 50, min: 0.0001);
@@ -64,7 +65,7 @@ _ = Task.Run(async () =>
 
 // Pipeline
 var dispatcher = new MessageDispatcher(rateLimiter, loggerFactory.CreateLogger<MessageDispatcher>());
-dispatcher.Register(new RoomHandler(roomService, clientRegistry));
+dispatcher.Register(new RoomHandler(roomService, clientRegistry, sessionTokenStore));
 dispatcher.Register(new DrawHandler(roomService));
 dispatcher.Register(new ObjectHandler(roomService));
 dispatcher.Register(new PresenceHandler(roomService));
@@ -105,7 +106,7 @@ else
 }
 
 // Start server
-var server = new DrawServer(port, dispatcher, clientRegistry, roomService, rateLimiter, loggerFactory);
+var server = new DrawServer(port, dispatcher, clientRegistry, roomService, rateLimiter, sessionTokenStore, loggerFactory);
 startupLogger.LogInformation("Starting on port {Port}", port);
 startupLogger.LogInformation("Health endpoint: {Prefix}health", healthServer.BoundPrefix);
 startupLogger.LogInformation("Claude API key: {KeyStatus}", string.IsNullOrWhiteSpace(apiKey) ? "(none — fallback parser only)" : "present");

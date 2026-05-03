@@ -17,4 +17,7 @@ public class RoomJoinedPayload : IPayload
 
     [JsonProperty("users")]
     public List<UserInfo> Users { get; set; } = new();
+
+    [JsonProperty("sessionToken")]
+    public string SessionToken { get; set; } = string.Empty;
 }

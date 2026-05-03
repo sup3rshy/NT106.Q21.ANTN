@@ -21,7 +21,13 @@ public class ClientHandler
     public string UserName { get; set; } = "Anonymous";
     public string UserColor { get; set; } = "#7F8C8D";
 
-    public event Func<ClientHandler, MessageType, string, string, string, JObject?, Task>? MessageReceived;
+    // Write-once via RoomHandler.HandleJoinAsync. The dispatcher reads SessionTokenBytes
+    // lock-free on the receive thread; safety relies on the assignment happening-before
+    // the JoinRoom reply that the client must read before sending any token-bearing message.
+    public string SessionToken { get; set; } = string.Empty;
+    public byte[]? SessionTokenBytes { get; set; }
+
+    public event Func<ClientHandler, MessageEnvelope.Envelope, Task>? MessageReceived;
     public event Func<ClientHandler, Task>? Disconnected;
 
     public ClientHandler(TcpClient tcpClient, ILogger<ClientHandler> logger)
@@ -85,14 +91,18 @@ public class ClientHandler
                 {
                     var err = NetMessage<ErrorPayload>.Create(
                         MessageType.Error, "server", "Server", envelope.RoomId,
-                        new ErrorPayload { Message = $"Protocol version {envelope.Version} not supported (server expects {ProtocolVersion.Current})" });
+                        new ErrorPayload
+                        {
+                            Message = $"Protocol version {envelope.Version} not supported (server expects {ProtocolVersion.Current})",
+                            Code = ErrorCodes.ProtocolVersion
+                        });
                     await SendAsync(err);
                     _isConnected = false;
                     break;
                 }
 
                 if (MessageReceived != null)
-                    await MessageReceived(this, envelope.Type, envelope.SenderId, envelope.SenderName, envelope.RoomId, envelope.RawPayload);
+                    await MessageReceived(this, envelope);
             }
         }
         _buffer.Clear();
