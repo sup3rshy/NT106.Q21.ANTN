@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using NetDraw.Server.Services;
 using NetDraw.Shared.Protocol;
 using NetDraw.Shared.Protocol.Payloads;
@@ -14,8 +16,11 @@ public class MessageDispatcher
         MessageType.LeaveRoom,
     };
 
+    private static readonly long RejectReplyCooldownTicks = Stopwatch.Frequency; // 1 s
+
     private readonly List<IMessageHandler> _handlers = new();
     private readonly IRateLimiter _rateLimiter;
+    private readonly ConcurrentDictionary<ClientHandler, long> _lastRejectReply = new();
 
     public MessageDispatcher(IRateLimiter rateLimiter)
     {
@@ -27,10 +32,17 @@ public class MessageDispatcher
         _handlers.Add(handler);
     }
 
+    public void ForgetClient(ClientHandler client) => _lastRejectReply.TryRemove(client, out _);
+
     public async Task DispatchAsync(MessageType type, string senderId, string senderName, string roomId, JObject? payload, ClientHandler sender)
     {
         if (!RateLimitExempt.Contains(type) && !_rateLimiter.TryAcquire(sender))
         {
+            var now = Stopwatch.GetTimestamp();
+            var prev = _lastRejectReply.GetOrAdd(sender, 0L);
+            if (now - prev < RejectReplyCooldownTicks) return;
+            _lastRejectReply[sender] = now;
+
             var err = NetMessage<ErrorPayload>.Create(MessageType.Error, "server", "Server", roomId,
                 new ErrorPayload { Message = "Rate limit exceeded" });
             try

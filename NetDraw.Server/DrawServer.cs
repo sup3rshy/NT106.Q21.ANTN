@@ -54,6 +54,7 @@ public class DrawServer
                 _roomService.RemoveUserFromRoom(client);
                 _clientRegistry.Unregister(client.UserId);
                 _rateLimiter.Forget(client);
+                _dispatcher.ForgetClient(client);
 
                 if (roomId != null)
                 {
