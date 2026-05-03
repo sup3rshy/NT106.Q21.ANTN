@@ -238,7 +238,7 @@ frame ends:
 |---------------|--------------------------------------------------------|
 | `0x7B` (`{`)  | JSON envelope — read up to next `\n`, parse as today.  |
 | `0xFE`        | Binary frame — read 6-byte header, then `length` bytes.|
-| `0x5B` (`[`)  | JSON array — same `\n`-delimited path. Reserved; today's wire never starts with a top-level array, but the parser tolerates it. |
+| `0x5B` (`[`)  | Reserved. `MessageEnvelope.Parse` calls `JObject.Parse`, which rejects a top-level array; if a future revision wants a batch envelope, the parser switches to `JToken.Parse`. Until then this byte is treated as Unknown framing and rejected. |
 | `0x0D` `0x0A` `0x09` `0x20` | Whitespace between frames; skip and re-peek. |
 | anything else | Unknown framing. Send `Error` envelope, close connection. |
 
@@ -374,7 +374,11 @@ when they ship.
 ## Length cap, version, AAD, and corruption
 
 - **Length cap.** 16 MiB receiver-side. A frame with `payload-length >
-  0x100_0000` is dropped without read; we close the connection because the
+  0xFF_FFFF` (the largest u24) is impossible — the wire encoding caps it.
+  The 16 MiB *check* is therefore against the largest representable u24 at
+  exactly `0xFF_FFFF`, not strictly greater than it; receiver-side guard is
+  `payload-length > 16_000_000` (or any threshold the deployment picks
+  below the u24 ceiling) and on hit we close the connection because the
   framer can't reliably re-sync inside what we hoped was binary. JSON path
   has no equivalent cap today; this brings binary up to a defensive parity.
 - **Version.** Header byte. v1 ships with this design. A v2 receiver MUST
