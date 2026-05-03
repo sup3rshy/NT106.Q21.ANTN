@@ -16,8 +16,12 @@ public class ErrorPayload : IPayload
 
 public static class ErrorCodes
 {
-    public const string AuthTokenMismatch = "AUTH_TOKEN_MISMATCH";
-    public const string AuthResumeFailed  = "AUTH_RESUME_FAILED";
-    public const string ProtocolVersion   = "PROTOCOL_VERSION";
-    public const string RateLimited       = "RATE_LIMITED";
+    public const string AuthTokenMismatch        = "AUTH_TOKEN_MISMATCH";
+    public const string AuthResumeFailed         = "AUTH_RESUME_FAILED";
+    public const string ProtocolVersion          = "PROTOCOL_VERSION";
+    public const string RateLimited              = "RATE_LIMITED";
+    public const string BinaryNotImplemented     = "BINARY_NOT_IMPLEMENTED";
+    public const string BinaryBodyUnderrun       = "BINARY_BODY_UNDERRUN";
+    public const string BinaryVersionUnsupported = "BINARY_VERSION_UNSUPPORTED";
+    public const string BinaryBadMagic           = "BINARY_BAD_MAGIC";
 }
