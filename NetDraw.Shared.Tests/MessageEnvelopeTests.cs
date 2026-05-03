@@ -105,4 +105,32 @@ public class MessageEnvelopeTests
         var json = NetMessage<ChatPayload>.Create(MessageType.ChatMessage, "x", "x", "r", new ChatPayload { Message = "hi" }).Serialize();
         Assert.EndsWith("\n", json);
     }
+
+    [Fact]
+    public void Parse_ReadsSessionToken_WhenPresent()
+    {
+        const string token = "abc-_xyz";
+        var json = "{\"type\":\"ChatMessage\",\"senderId\":\"u\",\"senderName\":\"U\",\"roomId\":\"r\",\"sessionToken\":\"" + token + "\"}";
+        var env = MessageEnvelope.Parse(json);
+        Assert.NotNull(env);
+        Assert.Equal(token, env!.SessionToken);
+    }
+
+    [Fact]
+    public void Parse_DefaultsSessionTokenToEmpty_WhenMissing()
+    {
+        var json = """{"type":"ChatMessage","senderId":"u","senderName":"U","roomId":"r"}""";
+        var env = MessageEnvelope.Parse(json);
+        Assert.NotNull(env);
+        Assert.Equal(string.Empty, env!.SessionToken);
+    }
+
+    [Fact]
+    public void Parse_PreservesEmptySessionToken()
+    {
+        var json = """{"type":"ChatMessage","senderId":"u","senderName":"U","roomId":"r","sessionToken":""}""";
+        var env = MessageEnvelope.Parse(json);
+        Assert.NotNull(env);
+        Assert.Equal(string.Empty, env!.SessionToken);
+    }
 }

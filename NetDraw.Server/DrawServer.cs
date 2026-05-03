@@ -16,18 +16,20 @@ public class DrawServer
     private readonly IClientRegistry _clientRegistry;
     private readonly IRoomService _roomService;
     private readonly IRateLimiter _rateLimiter;
+    private readonly ISessionTokenStore _sessionTokenStore;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DrawServer> _logger;
     private readonly CancellationTokenSource _cts = new();
     private bool _bound;
 
-    public DrawServer(int port, MessageDispatcher dispatcher, IClientRegistry clientRegistry, IRoomService roomService, IRateLimiter rateLimiter, ILoggerFactory loggerFactory)
+    public DrawServer(int port, MessageDispatcher dispatcher, IClientRegistry clientRegistry, IRoomService roomService, IRateLimiter rateLimiter, ISessionTokenStore sessionTokenStore, ILoggerFactory loggerFactory)
     {
         _listener = new TcpListener(IPAddress.Any, port);
         _dispatcher = dispatcher;
         _clientRegistry = clientRegistry;
         _roomService = roomService;
         _rateLimiter = rateLimiter;
+        _sessionTokenStore = sessionTokenStore;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<DrawServer>();
     }
@@ -85,6 +87,7 @@ public class DrawServer
                 _clientRegistry.Unregister(client.UserId);
                 _rateLimiter.Forget(client);
                 _dispatcher.ForgetClient(client);
+                _sessionTokenStore.MarkOrphaned(client);
 
                 if (roomId != null)
                 {

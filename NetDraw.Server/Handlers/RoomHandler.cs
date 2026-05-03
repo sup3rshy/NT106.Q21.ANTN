@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using NetDraw.Server.Pipeline;
 using NetDraw.Server.Services;
 using NetDraw.Shared.Models;
@@ -11,11 +12,13 @@ public class RoomHandler : IMessageHandler
 {
     private readonly IRoomService _roomService;
     private readonly IClientRegistry _clientRegistry;
+    private readonly ISessionTokenStore _sessionTokenStore;
 
-    public RoomHandler(IRoomService roomService, IClientRegistry clientRegistry)
+    public RoomHandler(IRoomService roomService, IClientRegistry clientRegistry, ISessionTokenStore sessionTokenStore)
     {
         _roomService = roomService;
         _clientRegistry = clientRegistry;
+        _sessionTokenStore = sessionTokenStore;
     }
 
     public bool CanHandle(MessageType type) =>
@@ -78,6 +81,18 @@ public class RoomHandler : IMessageHandler
 
         _clientRegistry.Register(senderId, sender);
 
+        // Issue the session token at most once per ClientHandler lifetime. A room-switch
+        // re-uses the existing token; the field is reference-typed and the dispatcher reads
+        // it lock-free, so any rewrite would race with in-flight messages on the same TCP.
+        if (sender.SessionTokenBytes is null)
+        {
+            var bytes = new byte[32];
+            RandomNumberGenerator.Fill(bytes);
+            sender.SessionTokenBytes = bytes;
+            sender.SessionToken = Base64UrlEncoding.Encode(bytes);
+            _sessionTokenStore.Issue(sender.SessionToken, bytes, sender, senderId);
+        }
+
         var room = _roomService.GetRoom(roomId)!;
         var joinedMsg = NetMessage<RoomJoinedPayload>.Create(
             MessageType.RoomJoined, "server", "Server", roomId,
@@ -85,7 +100,8 @@ public class RoomHandler : IMessageHandler
             {
                 Room = new RoomInfo { RoomId = roomId, RoomName = roomId, UserCount = room.ClientCount },
                 History = room.GetHistory(),
-                Users = room.GetUsers()
+                Users = room.GetUsers(),
+                SessionToken = sender.SessionToken
             });
         await sender.SendAsync(joinedMsg);
 

@@ -21,11 +21,12 @@ public class JoinRoomIntegrationTests
         var clientRegistry = new ClientRegistry();
         var roomService = new RoomService();
         var rateLimiter = new TokenBucketRateLimiter(capacity: 200, refillPerSec: 50);
+        var sessionTokenStore = new SessionTokenStore();
         using var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole());
         var dispatcher = new MessageDispatcher(rateLimiter, loggerFactory.CreateLogger<MessageDispatcher>());
-        dispatcher.Register(new RoomHandler(roomService, clientRegistry));
+        dispatcher.Register(new RoomHandler(roomService, clientRegistry, sessionTokenStore));
 
-        var server = new DrawServer(0, dispatcher, clientRegistry, roomService, rateLimiter, loggerFactory);
+        var server = new DrawServer(0, dispatcher, clientRegistry, roomService, rateLimiter, sessionTokenStore, loggerFactory);
         server.Bind();
         int port = server.BoundPort;
         var serverTask = Task.Run(server.StartAsync);

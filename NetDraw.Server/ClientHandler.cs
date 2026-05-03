@@ -21,6 +21,12 @@ public class ClientHandler
     public string UserName { get; set; } = "Anonymous";
     public string UserColor { get; set; } = "#7F8C8D";
 
+    // Write-once via RoomHandler.HandleJoinAsync. The dispatcher reads SessionTokenBytes
+    // lock-free on the receive thread; safety relies on the assignment happening-before
+    // the JoinRoom reply that the client must read before sending any token-bearing message.
+    public string SessionToken { get; set; } = string.Empty;
+    public byte[]? SessionTokenBytes { get; set; }
+
     public event Func<ClientHandler, MessageEnvelope.Envelope, Task>? MessageReceived;
     public event Func<ClientHandler, Task>? Disconnected;
 
