@@ -648,9 +648,6 @@ public partial class MainWindow : Window
         var actions = fileService.Load(dialog.FileName);
         if (actions == null) { MessageBox.Show("File không hợp lệ!", "Lỗi"); return; }
 
-        // Re-stamp loaded actions with the current user's identity. The server keys per-user
-        // undo on Action.UserId, and the file may have been authored by someone else — without
-        // this the loader can't undo their own load and peers see the wrong author name.
         foreach (var a in actions) { a.UserId = _vm.Canvas.UserId; a.UserName = _vm.Canvas.UserName; }
 
         _vm.Canvas.HandleSnapshot(actions);
@@ -726,8 +723,6 @@ public partial class MainWindow : Window
     private async Task BroadcastActionsAsync(List<DrawActionBase> actions)
     {
         if (!_vm.Network.IsConnected) return;
-        // Sequential await: SemaphoreSlim does not guarantee FIFO acquisition, so a fire-and-
-        // forget loop can deliver a multi-action load out of order on the wire.
         foreach (var action in actions)
         {
             var msg = NetMessage<DrawPayload>.Create(MessageType.Draw, _vm.Canvas.UserId, _vm.Canvas.UserName, _vm.Canvas.RoomId,
