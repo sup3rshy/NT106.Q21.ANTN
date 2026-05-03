@@ -20,6 +20,7 @@ public interface IRoomService
     Room? GetRoom(string roomId);
     List<RoomInfo> GetAllRoomInfos();
     JoinResult AddUserToRoom(string roomId, ClientHandler client, UserInfo user);
+    bool RebindClient(string roomId, ClientHandler newClient, UserInfo user);
     void RemoveUserFromRoom(ClientHandler client);
     string? GetRoomIdForClient(ClientHandler client);
     Task BroadcastToRoomAsync<T>(string roomId, NetMessage<T> message, ClientHandler? exclude = null) where T : IPayload;

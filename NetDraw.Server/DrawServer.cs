@@ -133,7 +133,18 @@ public class DrawServer
 
     private async Task TeardownAsync(ClientHandler client, string? roomId)
     {
+        // Always remove this dead handler from the room — RemoveUserFromRoom is keyed
+        // by ClientHandler so it won't disturb a live handler that took over the slot.
         _roomService.RemoveUserFromRoom(client);
+
+        // If a new handler claimed (or fresh-joined into) this user's slot during the
+        // grace window, the room still has someone with that UserId. Don't unregister
+        // them and don't broadcast UserLeft — they're still here.
+        bool userStillPresent = roomId != null
+            && !string.IsNullOrEmpty(client.UserId)
+            && _roomService.GetRoom(roomId)?.GetUsers().Any(u => u.UserId == client.UserId) == true;
+        if (userStillPresent) return;
+
         if (!string.IsNullOrEmpty(client.UserId)) _clientRegistry.Unregister(client.UserId);
 
         if (roomId != null)

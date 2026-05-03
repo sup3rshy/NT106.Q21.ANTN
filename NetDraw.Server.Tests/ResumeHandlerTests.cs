@@ -38,8 +38,17 @@ public class ResumeHandlerTests
             var token = joined.SessionToken;
             Assert.False(string.IsNullOrEmpty(token));
 
-            // Drop the TCP. Server's Disconnected handler defers cleanup for the grace window.
+            // Drop the TCP. Server's Disconnected handler defers cleanup for the grace
+            // window, but MarkOrphaned has to actually run before TryClaim can succeed —
+            // the disconnect callback is async. Poll the store with a hard ceiling.
             tcp.Close();
+            var orphanDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+            while (DateTime.UtcNow < orphanDeadline)
+            {
+                var entry = fixture.Store.Get(token);
+                if (entry?.Handler is null) break;
+                await Task.Delay(20);
+            }
 
             // Reconnect and Resume.
             using var tcp2 = new TcpClient();
@@ -57,6 +66,63 @@ public class ResumeHandlerTests
             Assert.Equal(roomId, resumePayload.Room.RoomId);
             Assert.Equal(token, resumePayload.SessionToken);
             Assert.Contains(resumePayload.Users, u => u.UserId == userId);
+        }
+        finally { await fixture.DisposeAsync(); }
+    }
+
+    [Fact(Timeout = 8000)]
+    public async Task DeferredCleanup_skips_UserLeft_when_user_already_rejoined()
+    {
+        // Resume fails (e.g. server reload, token unknown) → client falls back to
+        // fresh JoinRoom on a NEW handler with the same UserId. The deferred cleanup
+        // for the original dead handler must NOT fire UserLeft after the grace window,
+        // otherwise peers see the user vanish 30s after a successful re-join.
+        var fixture = await Fixture.StartAsync(graceSeconds: 1);
+        try
+        {
+            using var tcp = new TcpClient();
+            await fixture.ConnectAsync(tcp);
+            using var stream = tcp.GetStream();
+
+            const string roomId = "deferred-room";
+            const string userId = "u-rejoin";
+
+            await SendAsync(stream, NetMessage<UserPayload>.Create(
+                MessageType.JoinRoom, userId, "Alice", roomId,
+                new UserPayload { User = new UserInfo { UserId = userId, UserName = "Alice" } }));
+            await ReadLineAsync(stream); // RoomJoined
+
+            // Bob joins to receive the UserLeft we want to NOT fire.
+            using var bob = new TcpClient();
+            await fixture.ConnectAsync(bob);
+            using var bobStream = bob.GetStream();
+            await SendAsync(bobStream, NetMessage<UserPayload>.Create(
+                MessageType.JoinRoom, "bob", "Bob", roomId,
+                new UserPayload { User = new UserInfo { UserId = "bob", UserName = "Bob" } }));
+            await ReadLineAsync(bobStream); // Bob's RoomJoined
+            await ReadLineAsync(stream);    // Alice receives Bob's UserJoined
+
+            tcp.Close();
+            // Alice fresh-rejoins on a new TCP, NOT via Resume.
+            using var tcp2 = new TcpClient();
+            await fixture.ConnectAsync(tcp2);
+            using var stream2 = tcp2.GetStream();
+            await SendAsync(stream2, NetMessage<UserPayload>.Create(
+                MessageType.JoinRoom, userId, "Alice", roomId,
+                new UserPayload { User = new UserInfo { UserId = userId, UserName = "Alice" } }));
+            await ReadLineAsync(stream2); // RoomJoined (fresh)
+
+            // Drain Bob until grace window has elapsed. We assert no UserLeft for Alice arrives.
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
+            bool sawAliceLeft = false;
+            while (DateTime.UtcNow < deadline)
+            {
+                var line = await TryReadLineAsync(bobStream, TimeSpan.FromMilliseconds(500));
+                if (line is null) continue;
+                var env = MessageEnvelope.Parse(line);
+                if (env?.Type == MessageType.UserLeft && env.SenderId == userId) { sawAliceLeft = true; break; }
+            }
+            Assert.False(sawAliceLeft, "Deferred cleanup leaked UserLeft after fresh rejoin");
         }
         finally { await fixture.DisposeAsync(); }
     }
@@ -89,6 +155,7 @@ public class ResumeHandlerTests
         public required DrawServer Server { get; init; }
         public required Task ServerTask { get; init; }
         public required int Port { get; init; }
+        public required SessionTokenStore Store { get; init; }
 
         public static async Task<Fixture> StartAsync(int graceSeconds)
         {
@@ -105,7 +172,7 @@ public class ResumeHandlerTests
             int port = server.BoundPort;
             var task = Task.Run(server.StartAsync);
             await Task.Yield();
-            return new Fixture { Server = server, ServerTask = task, Port = port };
+            return new Fixture { Server = server, ServerTask = task, Port = port, Store = sessionTokenStore };
         }
 
         public async Task ConnectAsync(TcpClient client)
@@ -132,6 +199,28 @@ public class ResumeHandlerTests
         var bytes = Encoding.UTF8.GetBytes(message.Serialize());
         await stream.WriteAsync(bytes);
         await stream.FlushAsync();
+    }
+
+    private static async Task<string?> TryReadLineAsync(NetworkStream stream, TimeSpan timeout)
+    {
+        var buffer = new byte[8192];
+        var charBuf = new char[8192];
+        var sb = new StringBuilder();
+        var decoder = Encoding.UTF8.GetDecoder();
+        using var cts = new CancellationTokenSource(timeout);
+        while (!cts.IsCancellationRequested)
+        {
+            int n;
+            try { n = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cts.Token); }
+            catch (OperationCanceledException) { return null; }
+            catch { return null; }
+            if (n == 0) return null;
+            int decoded = decoder.GetChars(buffer, 0, n, charBuf, 0);
+            sb.Append(charBuf, 0, decoded);
+            int idx = sb.ToString().IndexOf('\n');
+            if (idx >= 0) return sb.ToString()[..idx];
+        }
+        return null;
     }
 
     private static async Task<string> ReadLineAsync(NetworkStream stream)

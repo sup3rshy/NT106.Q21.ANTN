@@ -181,12 +181,11 @@ public class RoomHandler : IMessageHandler
         sender.UserName = userName;
         sender.UserColor = color;
 
-        // Rebind room membership: AddClient dedupes by UserId, so this swaps the
-        // dead handler ref out for the live one without disturbing room history.
-        room.AddClient(sender, new UserInfo { UserId = userId, UserName = userName, Color = color });
+        // RebindClient swaps the dead handler ref for the live one without re-running
+        // PickColorForRoom — the resumed user keeps the color peers were already seeing.
+        var resumedUser = new UserInfo { UserId = userId, UserName = userName, Color = color };
+        _roomService.RebindClient(roomId, sender, resumedUser);
         _clientRegistry.Register(userId, sender);
-        // Keep _clientRooms mapping fresh (dead handler still mapped from before).
-        _roomService.AddUserToRoom(roomId, sender, new UserInfo { UserId = userId, UserName = userName, Color = color });
         _sessionTokenStore.RecordRoom(sender, roomId);
 
         var resumeReply = NetMessage<RoomJoinedPayload>.Create(
