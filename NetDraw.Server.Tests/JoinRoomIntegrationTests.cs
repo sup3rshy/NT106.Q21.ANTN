@@ -103,7 +103,15 @@ public class JoinRoomIntegrationTests
         using var cts = new CancellationTokenSource(timeout);
         while (!cts.IsCancellationRequested)
         {
-            int n = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cts.Token);
+            int n;
+            try
+            {
+                n = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cts.Token);
+            }
+            catch (OperationCanceledException) when (cts.IsCancellationRequested)
+            {
+                throw new TimeoutException($"No newline-delimited response received within {timeout.TotalSeconds}s");
+            }
             if (n == 0) break;
             int decoded = decoder.GetChars(buffer, 0, n, charBuf, 0);
             sb.Append(charBuf, 0, decoded);
