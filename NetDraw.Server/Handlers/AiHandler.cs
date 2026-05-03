@@ -104,7 +104,7 @@ public class AiHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[AI] ✘ error after {sw.ElapsedMilliseconds} ms: {ex.Message}");
+            Console.WriteLine($"[AI] ✘ error after {sw.ElapsedMilliseconds} ms: {ex}");
         }
     }
 
