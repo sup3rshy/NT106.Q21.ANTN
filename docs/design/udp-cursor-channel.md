@@ -28,8 +28,9 @@ course asks for.
 
 What this defends against:
 
-- Garbage frames. The 2-byte magic `'N','D'` plus version + type + length
-  filters the obvious noise (port scanners, stray multicast). Anything that
+- Garbage frames. The 2-byte magic `'N','D'` plus version + type fields
+  plus the fixed 24-byte datagram length filter the obvious noise (port
+  scanners, stray multicast). Anything that
   doesn't parse is dropped silently.
 
 What this does not defend against:
@@ -91,8 +92,9 @@ Field-by-field:
   thousand concurrent users per backend the birthday probability stays
   under 10⁻³, which is fine for a binding key the server can refresh on
   reconnect.
-- `roomHash` — `uint32 BE`, computed as `XxHash32.Hash(UTF8(NFC(roomId)))`
-  using the same `NetDraw.Shared/Util/XxHash32.cs` the LB design adds. The
+- `roomHash` — `uint32 BE`, computed via the canonical roomHash helper
+  (see the binary-frame design's `Shared/Util/RoomKey.cs` follow-up — the
+  LB design references the same helper). The
   server compares this against the room the sender's UserId is bound to and
   drops on mismatch. This is a sanity check, not a security measure — an
   attacker who knows the room can compute the hash too. Its real job is
@@ -195,12 +197,13 @@ public class UdpCursorService
             catch (SocketException) { continue; } // ICMP port-unreachable on Windows; ignore
 
             if (!CursorFrame.TryParse(result.Buffer, out var frame)) continue;
-            if (!_clients.TryGet(FormatUserId(frame.SenderId), out var sender)) continue;
+            var sender = _clients.GetHandler(FormatUserId(frame.SenderId));
+            if (sender is null) continue;
 
             // Pin / re-pin the endpoint, validate roomHash matches the TCP-known room.
             var roomId = _rooms.GetRoomIdForClient(sender);
             if (roomId is null) continue;
-            if (XxHash32.Hash(Encoding.UTF8.GetBytes(roomId)) != frame.RoomHash) continue;
+            if (RoomKey.Hash(roomId) != frame.RoomHash) continue;
 
             var freshlyPinned = !_bindings.ContainsKey(frame.SenderId);
             var binding = _bindings.AddOrUpdate(frame.SenderId,
@@ -244,8 +247,8 @@ The bindings dictionary is keyed by `senderId-as-uint32`, not by
 `ClientHandler`, because the inbound UDP packet carries the senderId but
 not the TCP handler — the lookup goes UDP → ClientRegistry. `IClientRegistry`
 already exists (`Services/IClientRegistry.cs`) and is keyed by the
-8-hex-char UserId; we expose a `TryGet(string userId, out ClientHandler)`
-on it that the cursor service calls.
+8-hex-char UserId. Use the existing `GetHandler(string userId)` overload,
+which returns the `ClientHandler?` (null on miss) — no new API needed.
 
 `PresenceHandler.cs` (the existing TCP `CursorMove` handler) is **not
 deleted**. It stays wired up so that:
