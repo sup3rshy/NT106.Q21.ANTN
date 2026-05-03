@@ -54,8 +54,24 @@ public class RoomHandler : IMessageHandler
         var user = new UserInfo { UserId = senderId, UserName = senderName, Color = sender.UserColor };
         sender.UserId = senderId;
         sender.UserName = senderName;
+
+        var joinResult = _roomService.AddUserToRoom(roomId, sender, user);
+        if (joinResult != JoinResult.Ok)
+        {
+            var reason = joinResult switch
+            {
+                JoinResult.RoomFull   => $"Room '{roomId}' is full ({_roomService.MaxUsersPerRoom} users max)",
+                JoinResult.ServerFull => $"Server is full ({_roomService.MaxRooms} rooms max)",
+                _ => "Cannot join room"
+            };
+            var errorMsg = NetMessage<ErrorPayload>.Create(
+                MessageType.Error, "server", "Server", roomId,
+                new ErrorPayload { Message = reason });
+            await sender.SendAsync(errorMsg);
+            return;
+        }
+
         _clientRegistry.Register(senderId, sender);
-        _roomService.AddUserToRoom(roomId, sender, user);
 
         var room = _roomService.GetRoom(roomId)!;
         var joinedMsg = NetMessage<RoomJoinedPayload>.Create(

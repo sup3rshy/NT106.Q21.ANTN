@@ -10,6 +10,15 @@ public class RoomService : IRoomService
     private readonly ConcurrentDictionary<string, Room> _rooms = new();
     private readonly ConcurrentDictionary<ClientHandler, string> _clientRooms = new();
 
+    public int MaxUsersPerRoom { get; }
+    public int MaxRooms { get; }
+
+    public RoomService(int maxUsersPerRoom = 10, int maxRooms = 100)
+    {
+        MaxUsersPerRoom = maxUsersPerRoom;
+        MaxRooms = maxRooms;
+    }
+
     public Room GetOrCreateRoom(string roomId) =>
         _rooms.GetOrAdd(roomId, id => new Room(id));
 
@@ -25,15 +34,28 @@ public class RoomService : IRoomService
             RoomId = r.RoomId,
             RoomName = r.RoomId,
             UserCount = r.ClientCount,
-            MaxUsers = 10,
+            MaxUsers = MaxUsersPerRoom,
             CreatedAt = r.CreatedAt
         }).ToList();
 
-    public void AddUserToRoom(string roomId, ClientHandler client, UserInfo user)
+    public JoinResult AddUserToRoom(string roomId, ClientHandler client, UserInfo user)
     {
+        if (!_rooms.ContainsKey(roomId) && _rooms.Count >= MaxRooms)
+            return JoinResult.ServerFull;
+
         var room = GetOrCreateRoom(roomId);
-        room.AddClient(client, user);
-        _clientRooms[client] = roomId;
+        lock (room)
+        {
+            // Re-join from same client/UserId is allowed (Room.AddClient dedupes); only block
+            // genuinely new joiners when the room is at capacity.
+            bool isRejoin = room.GetClients().Contains(client) || room.GetUsers().Any(u => u.UserId == user.UserId);
+            if (!isRejoin && room.ClientCount >= MaxUsersPerRoom)
+                return JoinResult.RoomFull;
+
+            room.AddClient(client, user);
+            _clientRooms[client] = roomId;
+            return JoinResult.Ok;
+        }
     }
 
     public void RemoveUserFromRoom(ClientHandler client)
