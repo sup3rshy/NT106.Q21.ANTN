@@ -128,6 +128,9 @@ public class MainViewModel : ViewModelBase
                 var joined = MessageEnvelope.DeserializePayload<RoomJoinedPayload>(payload);
                 if (joined != null)
                 {
+                    if (!string.IsNullOrEmpty(joined.SessionToken))
+                        Network.SessionToken = joined.SessionToken;
+
                     _events.Publish(new AppendChatEvent($"[Hệ thống] Bạn đã vào phòng '{joined.Room.RoomName}'", true));
                     _events.Publish(new UserListUpdatedEvent(joined.Users));
                     // Sync self-color from the server-assigned UserInfo

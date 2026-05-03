@@ -21,6 +21,10 @@ public class NetworkService : INetworkService
     public string ClientId { get; private set; } = "";
     public bool IsConnected => _isConnected && (_client?.Connected ?? false);
 
+    // Set by MainViewModel from the RoomJoined payload. Stamped onto every outbound
+    // NetMessage so the server's per-message validator accepts us as the original joiner.
+    public string SessionToken { get; set; } = string.Empty;
+
     public event Action<MessageType, string, string, string, JObject?>? MessageReceived;
     public event Action<string>? Disconnected;
 
@@ -30,6 +34,8 @@ public class NetworkService : INetworkService
         {
             _decoder.Reset();
             _buffer.Clear();
+            // Token lifetime is bounded to one TCP connection; never carry one across reconnects.
+            SessionToken = string.Empty;
 
             _client = new TcpClient();
             await _client.ConnectAsync(host, port);
@@ -89,6 +95,7 @@ public class NetworkService : INetworkService
     public async Task SendAsync<T>(NetMessage<T> message) where T : IPayload
     {
         if (!IsConnected || _stream == null) return;
+        message.SessionToken = SessionToken;
         await _sendLock.WaitAsync();
         try
         {
