@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using NetDraw.Server.Pipeline;
 using NetDraw.Server.Services;
 using NetDraw.Shared.Interfaces;
@@ -12,6 +13,7 @@ public class AiHandler : IMessageHandler
     private readonly IRoomService _roomService;
     private readonly IMcpClient _mcpClient;
     private readonly IAiParser _fallbackParser;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _roomQueues = new();
 
     public AiHandler(IRoomService roomService, IMcpClient mcpClient, IAiParser fallbackParser)
     {
@@ -35,6 +37,20 @@ public class AiHandler : IMessageHandler
     }
 
     private async Task ProcessInBackgroundAsync(string prompt, string senderId, string roomId)
+    {
+        var queue = _roomQueues.GetOrAdd(roomId, _ => new SemaphoreSlim(1, 1));
+        await queue.WaitAsync();
+        try
+        {
+            await ProcessOneAsync(prompt, senderId, roomId);
+        }
+        finally
+        {
+            queue.Release();
+        }
+    }
+
+    private async Task ProcessOneAsync(string prompt, string senderId, string roomId)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Console.WriteLine($"[AI] ▶ \"{prompt}\"  sender={senderId}  room={roomId}  mcp={(_mcpClient.IsConnected ? "connected" : "offline")}");
