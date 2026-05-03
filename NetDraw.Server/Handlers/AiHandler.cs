@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using NetDraw.Server.Pipeline;
 using NetDraw.Server.Services;
@@ -14,6 +15,7 @@ public class AiHandler : IMessageHandler
     private readonly IMcpClient _mcpClient;
     private readonly IAiParser _fallbackParser;
     private readonly ILogger<AiHandler> _logger;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _roomQueues = new();
 
     public AiHandler(IRoomService roomService, IMcpClient mcpClient, IAiParser fallbackParser, ILogger<AiHandler> logger)
     {
@@ -38,6 +40,35 @@ public class AiHandler : IMessageHandler
     }
 
     private async Task ProcessInBackgroundAsync(string prompt, string senderId, string roomId)
+    {
+        try
+        {
+            if (_roomService.GetRoom(roomId) == null)
+            {
+                _logger.LogWarning("AI reject: room not found: {RoomId}", LogHelper.SanitizeForLog(roomId, 80));
+                return;
+            }
+
+            SemaphoreSlim queue = _roomQueues.GetOrAdd(roomId, _ => new SemaphoreSlim(1, 1));
+            bool acquired = false;
+            try
+            {
+                await queue.WaitAsync();
+                acquired = true;
+                await ProcessOneAsync(prompt, senderId, roomId);
+            }
+            finally
+            {
+                if (acquired) queue.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AI queue error in room {RoomId}", LogHelper.SanitizeForLog(roomId, 80));
+        }
+    }
+
+    private async Task ProcessOneAsync(string prompt, string senderId, string roomId)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         _logger.LogInformation("AI prompt from {SenderId} in {RoomId} ({PromptLength} chars, mcp={McpStatus})",
