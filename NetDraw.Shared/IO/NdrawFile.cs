@@ -39,9 +39,6 @@ public static class NdrawFile
         var manifestJson = JsonConvert.SerializeObject(manifest, Formatting.Indented);
         var actionsJson = JsonConvert.SerializeObject(actions, Formatting.Indented, ActionSerializerSettings);
 
-        // Atomic write: stage to <path>.tmp in the same directory (so File.Move stays a rename,
-        // not a cross-filesystem copy) and replace on success. A crash mid-write loses the tmp,
-        // not the user's prior save.
         var tmp = path + ".tmp";
         try
         {

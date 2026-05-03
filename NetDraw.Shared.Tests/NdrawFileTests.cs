@@ -167,8 +167,6 @@ public class NdrawFileTests
             var revived = Assert.IsType<TextAction>(Assert.Single(doc.Actions));
             Assert.Equal(original, revived.Text);
 
-            // Prove the on-disk bytes are UTF-8, not (e.g.) CP437 from a default ZipArchive entry encoding.
-            // Đ is U+0110 → 0xC4 0x90 in UTF-8.
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read);
             using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
             var actionsEntry = archive.GetEntry("actions.json")!;
