@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using Microsoft.Extensions.Logging;
 using NetDraw.Server.Pipeline;
 using NetDraw.Server.Services;
 using NetDraw.Shared.Models;
@@ -15,25 +16,29 @@ public class DrawServer
     private readonly IClientRegistry _clientRegistry;
     private readonly IRoomService _roomService;
     private readonly IRateLimiter _rateLimiter;
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly ILogger<DrawServer> _logger;
 
-    public DrawServer(int port, MessageDispatcher dispatcher, IClientRegistry clientRegistry, IRoomService roomService, IRateLimiter rateLimiter)
+    public DrawServer(int port, MessageDispatcher dispatcher, IClientRegistry clientRegistry, IRoomService roomService, IRateLimiter rateLimiter, ILoggerFactory loggerFactory)
     {
         _listener = new TcpListener(IPAddress.Any, port);
         _dispatcher = dispatcher;
         _clientRegistry = clientRegistry;
         _roomService = roomService;
         _rateLimiter = rateLimiter;
+        _loggerFactory = loggerFactory;
+        _logger = loggerFactory.CreateLogger<DrawServer>();
     }
 
     public async Task StartAsync()
     {
         _listener.Start();
-        Console.WriteLine($"[Server] Listening on port {((IPEndPoint)_listener.LocalEndpoint).Port}");
+        _logger.LogInformation("Listening on port {Port}", ((IPEndPoint)_listener.LocalEndpoint).Port);
 
         while (true)
         {
             var tcpClient = await _listener.AcceptTcpClientAsync();
-            var handler = new ClientHandler(tcpClient);
+            var handler = new ClientHandler(tcpClient, _loggerFactory.CreateLogger<ClientHandler>());
 
             handler.MessageReceived += async (sender, type, senderId, senderName, roomId, payload) =>
             {
@@ -43,13 +48,13 @@ public class DrawServer
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[!] Dispatch error: {ex.Message}");
+                    _logger.LogError(ex, "Dispatch error for {MessageType} from {SenderId}", type, senderId);
                 }
             };
 
             handler.Disconnected += async client =>
             {
-                Console.WriteLine($"[-] Client disconnected: {client.UserName}");
+                _logger.LogInformation("Client disconnected: {UserName}", client.UserName);
                 var roomId = _roomService.GetRoomIdForClient(client);
                 _roomService.RemoveUserFromRoom(client);
                 _clientRegistry.Unregister(client.UserId);

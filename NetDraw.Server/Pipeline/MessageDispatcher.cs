@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 using NetDraw.Server.Services;
 using NetDraw.Shared.Protocol;
 using NetDraw.Shared.Protocol.Payloads;
@@ -20,11 +21,13 @@ public class MessageDispatcher
 
     private readonly List<IMessageHandler> _handlers = new();
     private readonly IRateLimiter _rateLimiter;
+    private readonly ILogger<MessageDispatcher> _logger;
     private readonly ConcurrentDictionary<ClientHandler, long> _lastRejectReply = new();
 
-    public MessageDispatcher(IRateLimiter rateLimiter)
+    public MessageDispatcher(IRateLimiter rateLimiter, ILogger<MessageDispatcher> logger)
     {
         _rateLimiter = rateLimiter;
+        _logger = logger;
     }
 
     public void Register(IMessageHandler handler)
@@ -51,7 +54,7 @@ public class MessageDispatcher
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[!] Failed to send rate-limit reply: {ex.Message}");
+                _logger.LogWarning("Failed to send rate-limit reply to {SenderId}: {Error}", senderId, ex.Message);
             }
             return;
         }
@@ -63,7 +66,7 @@ public class MessageDispatcher
         }
         else
         {
-            Console.WriteLine($"[!] No handler for message type: {type}");
+            _logger.LogWarning("No handler for message type {MessageType} from {SenderId}", type, senderId);
         }
     }
 }
