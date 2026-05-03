@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Text;
@@ -47,17 +48,23 @@ public class BeaconService
 
     public async Task RunAsync(CancellationToken ct)
     {
-        UdpClient? udp = null;
+        // Send beacon out every qualifying interface, not just whichever the OS picks
+        // for 239.255.77.12 in the routing table. On a typical student laptop the routing
+        // table will pick a Hyper-V/WSL/VirtualBox virtual switch and the classroom
+        // WiFi never sees the beacon — silent demo failure.
+        IPAddress[] localAddrs;
         try
         {
-            udp = new UdpClient(AddressFamily.InterNetwork);
-            // TTL=1 keeps the multicast inside the local L2 segment — no router hops, no internet leak.
-            udp.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 1);
+            localAddrs = MulticastInterfaceIPv4Addresses().ToArray();
         }
         catch (Exception ex)
         {
-            _log.LogWarning(ex, "Beacon socket setup failed; discovery disabled for this run");
-            udp?.Dispose();
+            _log.LogWarning(ex, "Beacon NIC enumeration failed; discovery disabled for this run");
+            return;
+        }
+        if (localAddrs.Length == 0)
+        {
+            _log.LogWarning("Beacon found no Up + multicast-capable IPv4 interfaces; discovery disabled for this run");
             return;
         }
 
@@ -69,27 +76,54 @@ public class BeaconService
         catch (Exception ex)
         {
             _log.LogWarning(ex, "Beacon group/port invalid (group={Group}, port={Port}); discovery disabled", Group, Port);
-            udp.Dispose();
             return;
         }
 
-        _log.LogInformation("Beacon broadcasting to {Group}:{Port} every {IntervalMs}ms (id={Id}, name={Name})",
-            Group, Port, IntervalMs, ServerId, Name);
-
+        var senders = new List<(UdpClient Udp, IPAddress Local)>();
         try
         {
+            foreach (var local in localAddrs)
+            {
+                UdpClient? udp = null;
+                try
+                {
+                    udp = new UdpClient(AddressFamily.InterNetwork);
+                    udp.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastTimeToLive, 1);
+                    udp.Client.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface,
+                        local.GetAddressBytes());
+                    senders.Add((udp, local));
+                }
+                catch (Exception ex)
+                {
+                    _log.LogWarning(ex, "Beacon socket setup failed for interface {Local}; skipping", local);
+                    udp?.Dispose();
+                }
+            }
+            if (senders.Count == 0)
+            {
+                _log.LogWarning("Beacon failed to bind any interface; discovery disabled for this run");
+                return;
+            }
+
+            _log.LogInformation("Beacon broadcasting to {Group}:{Port} every {IntervalMs}ms via {NicCount} NIC(s) (id={Id}, name={Name}, ifaces=[{Ifaces}])",
+                Group, Port, IntervalMs, senders.Count, ServerId, Name, string.Join(", ", senders.Select(s => s.Local)));
+
             while (!ct.IsCancellationRequested)
             {
                 try
                 {
                     var json = SerializeBeacon();
                     var bytes = Encoding.UTF8.GetBytes(json);
-                    await udp.SendAsync(bytes, bytes.Length, endpoint);
-                    _log.LogDebug("Beacon sent ({Bytes} bytes)", bytes.Length);
+                    foreach (var (udp, _) in senders)
+                    {
+                        try { await udp.SendAsync(bytes, bytes.Length, endpoint); }
+                        catch (Exception ex) { _log.LogWarning(ex, "Beacon send failed on one interface"); }
+                    }
+                    _log.LogDebug("Beacon sent ({Bytes} bytes × {NicCount} NIC)", bytes.Length, senders.Count);
                 }
                 catch (Exception ex)
                 {
-                    _log.LogWarning(ex, "Beacon send failed");
+                    _log.LogWarning(ex, "Beacon serialize failed");
                 }
 
                 try { await Task.Delay(IntervalMs, ct); }
@@ -98,8 +132,23 @@ public class BeaconService
         }
         finally
         {
-            udp.Dispose();
+            foreach (var (udp, _) in senders) { try { udp.Dispose(); } catch { } }
             _log.LogInformation("Beacon stopped");
+        }
+    }
+
+    internal static IEnumerable<IPAddress> MulticastInterfaceIPv4Addresses()
+    {
+        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.OperationalStatus != OperationalStatus.Up) continue;
+            if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+            if (!nic.SupportsMulticast) continue;
+            foreach (var ua in nic.GetIPProperties().UnicastAddresses)
+            {
+                if (ua.Address.AddressFamily == AddressFamily.InterNetwork)
+                    yield return ua.Address;
+            }
         }
     }
 

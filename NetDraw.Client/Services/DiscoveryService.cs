@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using NetDraw.Shared.Discovery;
@@ -51,7 +52,24 @@ public class DiscoveryService : IDisposable
             _udp = new UdpClient(AddressFamily.InterNetwork);
             _udp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             _udp.Client.Bind(new IPEndPoint(IPAddress.Any, _port));
-            _udp.JoinMulticastGroup(IPAddress.Parse(_group));
+
+            var groupAddr = IPAddress.Parse(_group);
+            int joined = 0;
+            foreach (var local in MulticastInterfaceIPv4Addresses())
+            {
+                try { _udp.JoinMulticastGroup(groupAddr, local); joined++; }
+                catch (Exception ex) { _log($"[Discovery] JoinMulticastGroup failed on {local}: {ex.Message}"); }
+            }
+            if (joined == 0)
+            {
+                // Default-interface join is the safety net when no NIC qualified above
+                // (e.g. host with only loopback or no IPv4 unicast). Demo will still
+                // not work in those environments, but at least the listener loop runs.
+                try { _udp.JoinMulticastGroup(groupAddr); joined = 1; }
+                catch (Exception ex) { _log($"[Discovery] Default JoinMulticastGroup failed: {ex.Message}"); }
+            }
+            if (joined == 0) throw new InvalidOperationException("no multicast interfaces available");
+            _log($"[Discovery] Joined {_group} on {joined} interface(s)");
         }
         catch (Exception ex)
         {
@@ -128,6 +146,21 @@ public class DiscoveryService : IDisposable
             {
                 // Refresh in-place to keep counts/last-seen current; no event fired.
                 _seen[server.ServerId] = server;
+            }
+        }
+    }
+
+    internal static IEnumerable<IPAddress> MulticastInterfaceIPv4Addresses()
+    {
+        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.OperationalStatus != OperationalStatus.Up) continue;
+            if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+            if (!nic.SupportsMulticast) continue;
+            foreach (var ua in nic.GetIPProperties().UnicastAddresses)
+            {
+                if (ua.Address.AddressFamily == AddressFamily.InterNetwork)
+                    yield return ua.Address;
             }
         }
     }
