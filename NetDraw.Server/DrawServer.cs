@@ -1,5 +1,8 @@
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using Microsoft.Extensions.Logging;
 using NetDraw.Server.Pipeline;
 using NetDraw.Server.Services;
@@ -19,10 +22,11 @@ public class DrawServer
     private readonly ISessionTokenStore _sessionTokenStore;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DrawServer> _logger;
+    private readonly X509Certificate2? _serverCert;
     private readonly CancellationTokenSource _cts = new();
     private bool _bound;
 
-    public DrawServer(int port, MessageDispatcher dispatcher, IClientRegistry clientRegistry, IRoomService roomService, IRateLimiter rateLimiter, ISessionTokenStore sessionTokenStore, ILoggerFactory loggerFactory)
+    public DrawServer(int port, MessageDispatcher dispatcher, IClientRegistry clientRegistry, IRoomService roomService, IRateLimiter rateLimiter, ISessionTokenStore sessionTokenStore, ILoggerFactory loggerFactory, X509Certificate2? serverCert = null)
     {
         _listener = new TcpListener(IPAddress.Any, port);
         _dispatcher = dispatcher;
@@ -32,6 +36,7 @@ public class DrawServer
         _sessionTokenStore = sessionTokenStore;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<DrawServer>();
+        _serverCert = serverCert;
     }
 
     // Read after Bind() (or StartAsync) so the kernel has assigned a port (port 0 → ephemeral).
@@ -48,7 +53,9 @@ public class DrawServer
     public async Task StartAsync()
     {
         Bind();
-        _logger.LogInformation("Listening on port {Port}", ((IPEndPoint)_listener.LocalEndpoint).Port);
+        _logger.LogInformation("Listening on port {Port} ({Mode})",
+            ((IPEndPoint)_listener.LocalEndpoint).Port,
+            _serverCert is null ? "plaintext" : "TLS 1.3");
 
         while (!_cts.IsCancellationRequested)
         {
@@ -65,7 +72,11 @@ public class DrawServer
             {
                 break;
             }
-            var handler = new ClientHandler(tcpClient, tcpClient.GetStream(), _loggerFactory.CreateLogger<ClientHandler>());
+
+            Stream? stream = await TryWrapStreamAsync(tcpClient);
+            if (stream is null) continue; // handshake failed; tcpClient already disposed
+
+            var handler = new ClientHandler(tcpClient, stream, _loggerFactory.CreateLogger<ClientHandler>());
 
             handler.MessageReceived += async (sender, envelope) =>
             {
@@ -102,6 +113,38 @@ public class DrawServer
             };
 
             _ = Task.Run(handler.ListenAsync);
+        }
+    }
+
+    // Returns the stream the ClientHandler should read/write on, or null if the
+    // connection should be discarded (TLS handshake failed). The LB-prefix read
+    // is intentionally absent in Phase 1 — no LB exists yet; deferred to the
+    // LB rollout (Phase 2 of the LB design / docs/design/tls-in-house.md
+    // "LB-prefix ordering").
+    private async Task<Stream?> TryWrapStreamAsync(TcpClient tcpClient)
+    {
+        if (_serverCert is null) return tcpClient.GetStream();
+
+        var raw = tcpClient.GetStream();
+        var ssl = new SslStream(raw, leaveInnerStreamOpen: false);
+        try
+        {
+            await ssl.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+            {
+                ServerCertificate = _serverCert,
+                ClientCertificateRequired = false,
+                EnabledSslProtocols = SslProtocols.Tls13,
+                CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
+            }, _cts.Token);
+            return ssl;
+        }
+        catch (Exception ex) when (ex is AuthenticationException or IOException or OperationCanceledException)
+        {
+            _logger.LogWarning("TLS handshake failed from {Endpoint}: {Reason}",
+                tcpClient.Client.RemoteEndPoint, ex.Message);
+            try { ssl.Dispose(); } catch { }
+            try { tcpClient.Dispose(); } catch { }
+            return null;
         }
     }
 
