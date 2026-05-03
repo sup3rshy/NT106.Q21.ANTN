@@ -19,7 +19,7 @@ public class NetMessage<T> where T : IPayload
     };
 
     [JsonProperty("version")]
-    public int Version { get; set; } = ProtocolVersion.Current;
+    public int Version { get; set; } = 0;
 
     [JsonProperty("type")]
     public MessageType Type { get; set; }
@@ -59,6 +59,7 @@ public class NetMessage<T> where T : IPayload
     {
         return new NetMessage<T>
         {
+            Version = ProtocolVersion.Current,
             Type = type,
             SenderId = senderId,
             SenderName = senderName,
