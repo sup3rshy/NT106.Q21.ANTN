@@ -2,5 +2,6 @@
   <Project Path="NetDraw.Client/NetDraw.Client.csproj" />
   <Project Path="NetDraw.McpServer/NetDraw.McpServer.csproj" />
   <Project Path="NetDraw.Server/NetDraw.Server.csproj" />
+  <Project Path="NetDraw.Server.Tests/NetDraw.Server.Tests.csproj" />
   <Project Path="NetDraw.Shared/NetDraw.Shared.csproj" />
 </Solution>
