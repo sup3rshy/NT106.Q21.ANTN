@@ -1,9 +1,13 @@
 -- NetDraw protocol dissector for Wireshark.
 --
--- Wire format: newline-delimited JSON ('\n' framing). Each line is one
--- complete JSON envelope. A single TCP segment may carry many lines, and
--- a single line may straddle TCP segments; both cases are handled by
--- desegmenting against the next '\n'.
+-- Wire format: two encodings on one TCP stream, distinguished by the first
+-- byte at every frame boundary.
+--   * 0x7B ('{')  -> newline-delimited JSON envelope.
+--   * 0xFE        -> length-prefixed binary frame (6-byte header + 48-byte
+--                    envelope + per-type body); see docs/design/binary-frame.md.
+-- Phase 1 of the binary path ships only the framer + Error stub, so binary
+-- frames are dissected at the envelope level only; per-type body decoders
+-- land in the Phase 5 dissector update.
 
 local netdraw_proto = Proto("netdraw", "NetDraw collaborative drawing protocol")
 
@@ -17,9 +21,22 @@ local f_ts       = ProtoField.uint64("netdraw.timestamp",       "Timestamp (ms)"
 local f_summary  = ProtoField.string("netdraw.payload_summary", "Payload summary")
 local f_raw      = ProtoField.string("netdraw.raw",             "Raw JSON")
 
+local f_bin_magic   = ProtoField.uint8 ("netdraw.bin.magic",   "Magic", base.HEX)
+local f_bin_version = ProtoField.uint8 ("netdraw.bin.version", "Binary version", base.DEC)
+local f_bin_type_id = ProtoField.uint8 ("netdraw.bin.type_id", "Binary type id", base.DEC)
+local f_bin_type    = ProtoField.string("netdraw.bin.type",    "Binary message type")
+local f_bin_length  = ProtoField.uint32("netdraw.bin.length",  "Payload length (bytes)", base.DEC)
+local f_bin_ts      = ProtoField.uint64("netdraw.bin.ts",      "Timestamp (ms)", base.DEC)
+local f_bin_sender  = ProtoField.uint32("netdraw.bin.sender",  "Sender uint32", base.HEX)
+local f_bin_room    = ProtoField.uint32("netdraw.bin.room",    "Room hash", base.HEX)
+local f_bin_token8  = ProtoField.bytes ("netdraw.bin.token8",  "Session token (first 8 B)")
+local f_bin_summary = ProtoField.string("netdraw.bin.summary", "Body summary")
+
 netdraw_proto.fields = {
     f_version, f_type, f_type_id, f_sender, f_senderid,
     f_room, f_ts, f_summary, f_raw,
+    f_bin_magic, f_bin_version, f_bin_type_id, f_bin_type,
+    f_bin_length, f_bin_ts, f_bin_sender, f_bin_room, f_bin_token8, f_bin_summary,
 }
 
 -- Mirrors the declaration order of MessageType in
@@ -387,6 +404,62 @@ local function dissect_message(line_tvb, pinfo, root_tree)
 end
 
 ----------------------------------------------------------------------
+-- Binary frame dissection (Phase 1).
+--
+-- The binary frame is fully length-prefixed (6-byte header) so reassembly
+-- is exact: read the 6 header bytes to learn payload-length, then desegment
+-- until the full frame is in the buffer. Only the envelope is decoded in
+-- Phase 1; per-type body summarizers ship in the Phase 5 dissector update.
+----------------------------------------------------------------------
+
+local function dissect_binary_message(frame_tvb, pinfo, root_tree)
+    local frame_len = frame_tvb:len()
+    local subtree = root_tree:add(netdraw_proto, frame_tvb,
+        "NetDraw binary frame (" .. frame_len .. " bytes)")
+
+    local magic   = frame_tvb(0, 1):uint()
+    local version = frame_tvb(1, 1):uint()
+    local type_id = frame_tvb(2, 1):uint()
+    local payload_len = frame_tvb(3, 1):uint() * 0x10000
+                      + frame_tvb(4, 1):uint() * 0x100
+                      + frame_tvb(5, 1):uint()
+
+    subtree:add(f_bin_magic,   frame_tvb(0, 1), magic)
+    subtree:add(f_bin_version, frame_tvb(1, 1), version)
+    subtree:add(f_bin_type_id, frame_tvb(2, 1), type_id)
+    subtree:add(f_bin_length,  frame_tvb(3, 3), payload_len)
+
+    local type_name = MESSAGE_TYPE_NAMES[type_id] or string.format("Type#%d", type_id)
+    subtree:add(f_bin_type, frame_tvb(2, 1), type_name)
+
+    -- 48-byte envelope: ts(8) + senderUint(4) + roomHash(4) + sessionToken(32).
+    if frame_len >= 6 + 48 then
+        local ts          = frame_tvb(6, 8):uint64()
+        local sender_uint = frame_tvb(14, 4):uint()
+        local room_hash   = frame_tvb(18, 4):uint()
+        subtree:add(f_bin_ts,     frame_tvb(6, 8),  ts)
+        subtree:add(f_bin_sender, frame_tvb(14, 4), sender_uint)
+        subtree:add(f_bin_room,   frame_tvb(18, 4), room_hash)
+        subtree:add(f_bin_token8, frame_tvb(22, 8))
+    end
+
+    -- Phase 1: every binary frame is acknowledged with BINARY_NOT_IMPLEMENTED.
+    -- Per-type body decoders land in the Phase 5 dissector update; for now we
+    -- only label the type and leave the body opaque so a mixed JSON+binary
+    -- capture still walks cleanly.
+    local body_len = math.max(0, payload_len - 48)
+    local label = string.format("BinaryFrame[type=%s (not-impl-yet) bodyLen=%d]",
+        type_name, body_len)
+    subtree:add(f_bin_summary, frame_tvb, label)
+    subtree:append_text(": " .. label)
+
+    if pinfo.cols.info ~= nil then
+        local prefix = (tostring(pinfo.cols.info) == "") and "" or " | "
+        pinfo.cols.info:append(prefix .. label)
+    end
+end
+
+----------------------------------------------------------------------
 -- Top-level dissector with TCP reassembly.
 ----------------------------------------------------------------------
 
@@ -403,17 +476,53 @@ function netdraw_proto.dissector(tvb, pinfo, tree)
     local raw = tvb:raw()
     local offset = 0
     while offset < len do
-        local nl = raw:find("\n", offset + 1, true)
-        if nl == nil then
-            pinfo.desegment_offset = offset
-            pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
-            return len
-        end
+        local first = raw:byte(offset + 1)
 
-        local line_len = nl - offset
-        local line_tvb = tvb(offset, line_len)
-        dissect_message(line_tvb, pinfo, tree)
-        offset = offset + line_len
+        if first == 0xFE then
+            -- Binary frame: read the 6-byte header to learn payload-length,
+            -- then desegment until the whole frame is in hand.
+            if len - offset < 6 then
+                pinfo.desegment_offset = offset
+                pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
+                return len
+            end
+            local payload_len = raw:byte(offset + 4) * 0x10000
+                              + raw:byte(offset + 5) * 0x100
+                              + raw:byte(offset + 6)
+            local total = 6 + payload_len
+            if len - offset < total then
+                pinfo.desegment_offset = offset
+                pinfo.desegment_len = total - (len - offset)
+                return len
+            end
+            local frame_tvb = tvb(offset, total)
+            dissect_binary_message(frame_tvb, pinfo, tree)
+            offset = offset + total
+
+        elseif first == 0x7B then
+            -- JSON line: original path, find next '\n' from absolute offset.
+            local nl = raw:find("\n", offset + 1, true)
+            if nl == nil then
+                pinfo.desegment_offset = offset
+                pinfo.desegment_len = DESEGMENT_ONE_MORE_SEGMENT
+                return len
+            end
+            local line_len = nl - offset
+            local line_tvb = tvb(offset, line_len)
+            dissect_message(line_tvb, pinfo, tree)
+            offset = offset + line_len
+
+        elseif first == 0x0D or first == 0x0A or first == 0x09 or first == 0x20 then
+            offset = offset + 1
+
+        else
+            -- Unknown framing byte. Consume one and keep going so a single
+            -- corrupt byte in a capture doesn't hide every well-formed frame
+            -- after it. The server's framer closes on this case; the dissector
+            -- can't ask for a fresh capture, so the trade-off lands the other
+            -- way (see docs/design/binary-frame.md "Wireshark dissector").
+            offset = offset + 1
+        end
     end
 
     return offset
