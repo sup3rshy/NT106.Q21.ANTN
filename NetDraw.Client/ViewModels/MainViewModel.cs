@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Threading;
 using System.Windows;
 using System.Windows.Input;
 using NetDraw.Client.Drawing;
@@ -22,6 +23,7 @@ public class MainViewModel : ViewModelBase
     public ObservableCollection<DiscoveredServer> DiscoveredServers { get; } = new();
 
     private bool _isConnected;
+    private int _reconnectInFlight;
     private string _serverHost = "127.0.0.1";
     private int _serverPort = 5000;
     private string _roomId = "default";
@@ -133,31 +135,36 @@ public class MainViewModel : ViewModelBase
 
     private async Task AttemptReconnectAsync()
     {
-        var token = Network.LastSessionToken;
-        if (string.IsNullOrEmpty(token)) return;
-        // Exponential backoff: 1s, 2s, 4s. 3 attempts is the reconnect budget; after
-        // that the user has to click Connect manually. The server's grace window
-        // (default 30s) bounds how long Resume will succeed regardless of our budget.
-        int[] backoffMs = { 1000, 2000, 4000 };
-        for (int attempt = 0; attempt < backoffMs.Length; attempt++)
+        if (Interlocked.Exchange(ref _reconnectInFlight, 1) == 1) return;
+        try
         {
-            await Task.Delay(backoffMs[attempt]);
-            if (Network.LastDisconnectWasUserInitiated) return;
+            var token = Network.LastSessionToken;
+            if (string.IsNullOrEmpty(token)) return;
+            int[] backoffMs = { 1000, 2000, 4000 };
+            for (int attempt = 0; attempt < backoffMs.Length; attempt++)
+            {
+                await Task.Delay(backoffMs[attempt]);
+                if (Network.LastDisconnectWasUserInitiated) return;
 
-            await Application.Current.Dispatcher.InvokeAsync(() => StatusText = $"Đang kết nối lại... ({attempt + 1}/{backoffMs.Length})");
-            bool ok = await Network.ConnectAsync(ServerHost, ServerPort);
-            if (!ok) continue;
+                await Application.Current.Dispatcher.InvokeAsync(() => StatusText = $"Đang kết nối lại... ({attempt + 1}/{backoffMs.Length})");
+                bool ok = await Network.ConnectAsync(ServerHost, ServerPort);
+                if (!ok) continue;
 
-            var resumeMsg = NetMessage<ResumePayload>.Create(
-                MessageType.Resume, Network.ClientId, UserName, RoomId,
-                new ResumePayload { Token = token });
-            await Network.SendAsync(resumeMsg);
-            // ResumeAccepted (success) or Error{AUTH_RESUME_FAILED} (fall back to JoinRoom)
-            // is handled by ProcessMessage. Either way, this attempt is over.
-            return;
+                IsConnected = true;
+
+                var resumeMsg = NetMessage<ResumePayload>.Create(
+                    MessageType.Resume, Network.ClientId, UserName, RoomId,
+                    new ResumePayload { Token = token });
+                await Network.SendAsync(resumeMsg);
+                return;
+            }
+
+            await Application.Current.Dispatcher.InvokeAsync(() => StatusText = "Không kết nối lại được. Hãy bấm Kết nối.");
         }
-
-        await Application.Current.Dispatcher.InvokeAsync(() => StatusText = "Không kết nối lại được. Hãy bấm Kết nối.");
+        finally
+        {
+            Interlocked.Exchange(ref _reconnectInFlight, 0);
+        }
     }
 
     private async Task JoinRoomAsync(string roomId)
