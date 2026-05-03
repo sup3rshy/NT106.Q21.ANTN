@@ -142,7 +142,7 @@ public class CanvasViewModel : ViewModelBase
         var action = _currentAction;
         _currentAction = null;
 
-        History.Add(action);
+        History.Add(action, isLocal: true);
         var msg = NetMessage<DrawPayload>.Create(MessageType.Draw, UserId, UserName, RoomId,
             new DrawPayload { Action = action });
         _ = _network.SendAsync(msg);
@@ -164,7 +164,7 @@ public class CanvasViewModel : ViewModelBase
             IsBold = bold, IsItalic = italic,
             IsUnderline = underline, IsStrikethrough = strikethrough
         };
-        History.Add(action);
+        History.Add(action, isLocal: true);
         var msg = NetMessage<DrawPayload>.Create(MessageType.Draw, UserId, UserName, RoomId,
             new DrawPayload { Action = action });
         _ = _network.SendAsync(msg);

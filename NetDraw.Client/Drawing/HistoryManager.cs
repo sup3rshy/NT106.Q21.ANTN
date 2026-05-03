@@ -16,12 +16,12 @@ public class HistoryManager
         lock (_lock) return new List<DrawActionBase>(_allActions);
     }
 
-    public void Add(DrawActionBase action)
+    public void Add(DrawActionBase action, bool isLocal = false)
     {
         lock (_lock)
         {
             _allActions.Add(action);
-            _undoStack.Clear();
+            if (isLocal) _undoStack.Clear();
         }
         ActionAdded?.Invoke(action);
     }

@@ -683,7 +683,7 @@ public partial class MainWindow : Window
                 X = Math.Max(0, (DrawCanvas.Width - imgW) / 2),
                 Y = Math.Max(0, (DrawCanvas.Height - imgH) / 2), Width = imgW, Height = imgH, ImageData = base64
             };
-            _history.Add(action);
+            _history.Add(action, isLocal: true);
             RenderAction(action);
             AddHistoryItem(action);
         }
@@ -699,7 +699,7 @@ public partial class MainWindow : Window
         {
             action.UserId = _vm.Canvas.UserId;
             action.GroupId = groupId;
-            _history.Add(action);
+            _history.Add(action, isLocal: true);
             RenderAction(action);
             AddHistoryItem(action);
         }
