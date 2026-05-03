@@ -95,13 +95,18 @@ public class JoinRoomIntegrationTests
     private static async Task<string> ReadLineAsync(NetworkStream stream, TimeSpan timeout)
     {
         var buffer = new byte[4096];
+        var charBuf = new char[4096];
         var sb = new StringBuilder();
+        // Decoder keeps state across reads so a UTF-8 sequence split between two
+        // ReadAsync chunks decodes correctly (mirrors ClientHandler.ListenAsync).
+        var decoder = Encoding.UTF8.GetDecoder();
         using var cts = new CancellationTokenSource(timeout);
         while (!cts.IsCancellationRequested)
         {
             int n = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cts.Token);
             if (n == 0) break;
-            sb.Append(Encoding.UTF8.GetString(buffer, 0, n));
+            int decoded = decoder.GetChars(buffer, 0, n, charBuf, 0);
+            sb.Append(charBuf, 0, decoded);
             int idx = sb.ToString().IndexOf('\n');
             if (idx >= 0) return sb.ToString()[..idx];
         }
