@@ -43,7 +43,8 @@ var startupLogger = loggerFactory.CreateLogger("NetDraw.Startup");
 // Services
 var clientRegistry = new ClientRegistry();
 var roomService = new RoomService();
-var sessionTokenStore = new SessionTokenStore();
+int graceSeconds = ReadIntEnv("SESSION_RESUME_GRACE_SECONDS", 30, min: 1, max: 600);
+var sessionTokenStore = new SessionTokenStore(TimeSpan.FromSeconds(graceSeconds));
 
 int rateCapacity = ReadIntEnv("RATE_LIMIT_CAPACITY", 200, min: 1);
 double rateRefill = ReadDoubleEnv("RATE_LIMIT_REFILL_PER_SEC", 50, min: 0.0001);
@@ -108,6 +109,7 @@ else
 // Start server
 var server = new DrawServer(port, dispatcher, clientRegistry, roomService, rateLimiter, sessionTokenStore, loggerFactory);
 startupLogger.LogInformation("Starting on port {Port}", port);
+startupLogger.LogInformation("Session resume grace: {GraceSeconds}s", graceSeconds);
 startupLogger.LogInformation("Health endpoint: {Prefix}health", healthServer.BoundPrefix);
 startupLogger.LogInformation("Claude API key: {KeyStatus}", string.IsNullOrWhiteSpace(apiKey) ? "(none — fallback parser only)" : "present");
 startupLogger.LogInformation("MCP project: {McpProjectPath}", mcpProjectPath ?? "(not found)");

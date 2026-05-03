@@ -80,6 +80,30 @@ public class RoomService : IRoomService
         return Palette.FirstOrDefault(c => !taken.Contains(c)) ?? FallbackColor;
     }
 
+    // Resume path: swap a dead handler ref for a live one without re-running color
+    // selection (so the resumed user keeps the color peers were already seeing).
+    // Caller picks user.Color from the existing room entry; we use it as-is.
+    public bool RebindClient(string roomId, ClientHandler newClient, UserInfo user)
+    {
+        lock (_membershipLock)
+        {
+            if (!_rooms.TryGetValue(roomId, out var room)) return false;
+
+            // Drop _clientRooms mappings for any prior handlers that held this UserId.
+            // Room.AddClient below will dedupe their _clients entries by UserId; this
+            // keeps the (handler -> roomId) index from leaking dead refs.
+            var deadHandlers = room.GetClients()
+                .Where(h => !ReferenceEquals(h, newClient) && room.GetUser(h)?.UserId == user.UserId)
+                .ToList();
+            foreach (var dead in deadHandlers) _clientRooms.TryRemove(dead, out _);
+
+            newClient.UserColor = user.Color;
+            room.AddClient(newClient, user);
+            _clientRooms[newClient] = roomId;
+            return true;
+        }
+    }
+
     public void RemoveUserFromRoom(ClientHandler client)
     {
         lock (_membershipLock)

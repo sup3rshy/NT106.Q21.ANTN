@@ -17,13 +17,21 @@ public class NetworkService : INetworkService
     // split between two ReadAsync chunks decodes correctly.
     private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private bool _userInitiatedDisconnect;
 
     public string ClientId { get; private set; } = "";
     public bool IsConnected => _isConnected && (_client?.Connected ?? false);
 
-    // Set by MainViewModel from the RoomJoined payload. Stamped onto every outbound
-    // NetMessage so the server's per-message validator accepts us as the original joiner.
+    // Set by MainViewModel from the RoomJoined / ResumeAccepted payload. Stamped onto
+    // every outbound NetMessage so the server's per-message validator accepts us as
+    // the original joiner.
     public string SessionToken { get; set; } = string.Empty;
+
+    // Survives a reconnect: MainViewModel uses this to attempt a Resume on the new
+    // connection before falling back to a fresh JoinRoom. Cleared only on user
+    // Disconnect or after a clean fresh JoinRoom.
+    public string LastSessionToken { get; private set; } = string.Empty;
+    public bool LastDisconnectWasUserInitiated { get; private set; }
 
     public event Action<MessageType, string, string, string, JObject?>? MessageReceived;
     public event Action<string>? Disconnected;
@@ -35,13 +43,16 @@ public class NetworkService : INetworkService
             _decoder.Reset();
             _buffer.Clear();
             // Token lifetime is bounded to one TCP connection; never carry one across reconnects.
+            // LastSessionToken survives so the caller can attempt Resume; SessionToken does not.
             SessionToken = string.Empty;
+            _userInitiatedDisconnect = false;
+            LastDisconnectWasUserInitiated = false;
 
             _client = new TcpClient();
             await _client.ConnectAsync(host, port);
             _stream = _client.GetStream();
             _isConnected = true;
-            ClientId = Guid.NewGuid().ToString("N")[..8];
+            if (string.IsNullOrEmpty(ClientId)) ClientId = Guid.NewGuid().ToString("N")[..8];
             _ = Task.Run(ListenAsync);
             return true;
         }
@@ -82,19 +93,23 @@ public class NetworkService : INetworkService
                 _buffer.Append(data);
             }
         }
-        catch (Exception ex)
+        catch
         {
-            if (_isConnected) Disconnected?.Invoke($"Mất kết nối: {ex.Message}");
+            // Swallow read errors; finally fires the single Disconnected notification.
         }
         finally
         {
-            Disconnect();
+            CloseSocket();
+            Disconnected?.Invoke(_userInitiatedDisconnect ? "Đã ngắt kết nối" : "Mất kết nối");
         }
     }
 
     public async Task SendAsync<T>(NetMessage<T> message) where T : IPayload
     {
         if (!IsConnected || _stream == null) return;
+        // Resume carries its credential in the payload, not the envelope; the connection
+        // has no bound token yet at that point. JoinRoom is also pre-issuance. Both flow
+        // through here with SessionToken empty, which is correct.
         message.SessionToken = SessionToken;
         await _sendLock.WaitAsync();
         try
@@ -113,11 +128,26 @@ public class NetworkService : INetworkService
         }
     }
 
+    public void ClearLastSessionToken() => LastSessionToken = string.Empty;
+
     public void Disconnect()
     {
         if (!_isConnected) return;
+        _userInitiatedDisconnect = true;
+        LastDisconnectWasUserInitiated = true;
+        LastSessionToken = string.Empty;
+        SessionToken = string.Empty;
+        CloseSocket();
+        // ListenAsync's finally block will fire the Disconnected event once.
+    }
+
+    private void CloseSocket()
+    {
+        if (!_isConnected) return;
+        // Cache the token so a non-user-initiated drop can reconnect and resume.
+        if (!_userInitiatedDisconnect && !string.IsNullOrEmpty(SessionToken))
+            LastSessionToken = SessionToken;
         _isConnected = false;
         try { _stream?.Close(); _client?.Close(); } catch { }
-        Disconnected?.Invoke("Đã ngắt kết nối");
     }
 }

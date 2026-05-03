@@ -12,6 +12,8 @@ public enum MessageType
     UserJoined,         // Server -> All: a new user entered the room
     UserLeft,           // Server -> All: a user left the room
     RoomList,           // Server -> Client: list of available rooms
+    Resume,             // Client -> Server: resume orphaned session by token
+    ResumeAccepted,     // Server -> Client: resume succeeded; carries room snapshot
 
     // === Drawing ===
     Draw,               // Client -> Server -> All: committed draw action

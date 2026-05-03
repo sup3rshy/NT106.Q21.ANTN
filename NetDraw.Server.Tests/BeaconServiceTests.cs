@@ -109,6 +109,7 @@ public class BeaconServiceTests
         public Room GetOrCreateRoom(string roomId) => throw new NotImplementedException();
         public Room? GetRoom(string roomId) => throw new NotImplementedException();
         public JoinResult AddUserToRoom(string roomId, ClientHandler client, UserInfo user) => throw new NotImplementedException();
+        public bool RebindClient(string roomId, ClientHandler newClient, UserInfo user) => throw new NotImplementedException();
         public void RemoveUserFromRoom(ClientHandler client) => throw new NotImplementedException();
         public string? GetRoomIdForClient(ClientHandler client) => throw new NotImplementedException();
         public Task BroadcastToRoomAsync<T>(string roomId, NetMessage<T> message, ClientHandler? exclude = null) where T : IPayload

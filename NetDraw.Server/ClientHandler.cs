@@ -8,6 +8,8 @@ namespace NetDraw.Server;
 
 public class ClientHandler
 {
+    private const int MaxJsonLineLength = 1_048_576;
+
     private readonly TcpClient _tcpClient;
     private readonly NetworkStream _stream;
     private readonly ByteFrameBuffer _buffer = new();
@@ -106,7 +108,18 @@ public class ClientHandler
             if (first == (byte)'{')
             {
                 int nl = _buffer.IndexOf((byte)'\n', pos);
-                if (nl < 0) break; // need more bytes to find a newline
+                if (nl < 0)
+                {
+                    if (_buffer.Length - pos > MaxJsonLineLength)
+                    {
+                        await SendBinaryFatalErrorAsync(
+                            ErrorCodes.BinaryBodyUnderrun,
+                            $"JSON line exceeded {MaxJsonLineLength} bytes without newline");
+                        _isConnected = false;
+                        return;
+                    }
+                    break;
+                }
                 int lineLen = nl - pos;
                 byte[] lineCopy = _buffer.AsSpan(pos, lineLen).ToArray();
                 bool ok = await HandleJsonLineAsync(lineCopy);
