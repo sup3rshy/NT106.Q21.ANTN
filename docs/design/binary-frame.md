@@ -108,14 +108,23 @@ size  | 8 B (BE)  | 4 B (BE)   | 4 B (BE)  | 32 B (raw bytes)
   An unknown `senderUint` (race between a `UserJoined` and the first binary
   frame from that user) renders with a placeholder name and gets corrected
   by the next presence update — same fail-soft as a bare cursor seen before
-  presence catches up.
+  presence catches up. `UserId` is the 8-hex truncation of a fresh GUID, so
+  birthday collisions land at ~1 in 10⁸ for 10 users in a room — non-zero
+  but far below the rate at which two strangers pick the same display name.
+  The client map is last-write-wins on collision: the second `UserJoined`
+  with the same `senderUint` overwrites the first entry's display name and
+  colour, same fail-soft as the cursor presence map.
 
 - `roomHash` — `uint32 BE`, computed as
   `XxHash32.Hash(UTF8(NFC(roomId)))` using the same
-  `NetDraw.Shared/Util/XxHash32.cs` the LB design adds. Server compares
-  against the room the connection's `ClientHandler` is bound to and drops
-  on mismatch. The binary path never carries the human-readable `roomId`
-  string — `JoinRoom` (the only frame that needs the string) stays JSON.
+  `NetDraw.Shared/Util/XxHash32.cs` the LB design adds. The NFC pass plus
+  the hash live behind a single helper at `Shared/Util/RoomKey.cs` (to be
+  created); TCP-binary, UDP-cursor, and load-balancer paths all call into
+  it so the four-byte value on every wire is bit-identical for the same
+  human roomId. Server compares against the room the connection's
+  `ClientHandler` is bound to and drops on mismatch. The binary path never
+  carries the human-readable `roomId` string — `JoinRoom` (the only frame
+  that needs the string) stays JSON.
 
 - `sessionToken` — 32 raw bytes. The same secret the JSON envelope's
   `sessionToken` field carries (per `docs/design/session-token.md`),
@@ -143,8 +152,8 @@ types that ship in Phase 2/3, with sketches for the rest in Phase 4.
 
 ```
 +------+------+------+------+------+------+
-| 0xFE | 0x01 | 0x06 | 0x00 0x01 0x21    |    header (6 B)
-| magic| ver  | Draw |   length = 289    |
+| 0xFE | 0x01 | 0x06 | 0x00 0x01 0x26    |    header (6 B)
+| magic| ver  | Draw |   length = 294    |
 +------+------+------+------+------+------+
 | 8 B BE timestamp                       |
 | 4 B BE senderUint  | 4 B BE roomHash   |    envelope (48 B)
@@ -163,14 +172,16 @@ types that ship in Phase 2/3, with sketches for the rest in Phase 4.
 +----------------------------------------+
 ```
 
-Total = 6 + 48 + 1 + 16 + 17 + 3 + 4 + 1 + 1 + 1 + 2 + 200 = **299 bytes**.
+Body = 1 + 16 + 1 + 16 + 3 + 4 + 1 + 1 + 1 + 2 + 200 = 246 B.
+`payload-length` = envelope(48) + body(246) = **294** (`0x000126`).
+Total = header(6) + payload-length(294) = **300 bytes**.
 
 #### Example 2 — `CursorMove`
 
 ```
 +------+------+------+------+------+------+
-| 0xFE | 0x01 | 0x0E | 0x00 0x00 0x33    |    header (6 B)
-| magic| ver  | Curs |   length = 51     |
+| 0xFE | 0x01 | 0x0E | 0x00 0x00 0x37    |    header (6 B)
+| magic| ver  | Curs |   length = 55     |
 +------+------+------+------+------+------+
 | 48 B envelope                          |
 +----------------------------------------+
@@ -179,7 +190,8 @@ Total = 6 + 48 + 1 + 16 + 17 + 3 + 4 + 1 + 1 + 1 + 2 + 200 = **299 bytes**.
 +----------------------------------------+
 ```
 
-Total = 6 + 48 + 7 = **61 bytes**.
+Body = 7 B. `payload-length` = envelope(48) + body(7) = **55** (`0x000037`).
+Total = header(6) + payload-length(55) = **61 bytes**.
 
 This is the TCP-fallback path for cursor presence; the hot path is UDP
 (see `docs/design/udp-cursor-channel.md`). When UDP is blocked or absent,
@@ -190,8 +202,8 @@ replaces the ~180 B JSON envelope they would otherwise emit.
 
 ```
 +------+------+------+------+------+------+
-| 0xFE | 0x01 | 0x06 | 0x00 0x00 0x65    |    header (6 B)
-| magic| ver  | Draw |   length = 101    |
+| 0xFE | 0x01 | 0x06 | 0x00 0x00 0x5D    |    header (6 B)
+| magic| ver  | Draw |   length = 93     |
 +------+------+------+------+------+------+
 | 48 B envelope                          |
 +----------------------------------------+
@@ -209,7 +221,9 @@ replaces the ~180 B JSON envelope they would otherwise emit.
 +----------------------------------------+
 ```
 
-Total = 6 + 48 + 1 + 16 + 1 + 3 + 4 + 1 + 1 + 1 + 16 + 1 = **99 bytes**.
+Body = 1 + 16 + 1 + 3 + 4 + 1 + 1 + 1 + 16 + 1 = 45 B.
+`payload-length` = envelope(48) + body(45) = **93** (`0x00005D`).
+Total = header(6) + payload-length(93) = **99 bytes**.
 
 For comparison the JSON `Draw{Shape}` runs ~330 B at the same shape: the
 two GUID strings, the type discriminators, every styling field as JSON,
@@ -366,6 +380,14 @@ when they ship.
 - **Version.** Header byte. v1 ships with this design. A v2 receiver MUST
   also speak v1. Unknown future version → `Error` envelope, frame
   discarded by length, connection stays up.
+- **Body underrun.** A per-type decoder that asks for more bytes than
+  remain in the body slice (e.g. `pointCount` says 50 points but only
+  120 bytes are left after the common header) drops the frame, sends an
+  `Error` envelope with code `BINARY_BODY_UNDERRUN`, and keeps the TCP
+  connection up. Mirrors the version-mismatch handling: the framer
+  already consumed the declared `payload-length` bytes correctly, so the
+  stream is still aligned on the next frame boundary; only the malformed
+  body is lost.
 - **Endianness.** All multi-byte ints big-endian; floats are the standard
   IEEE 754 32-bit binary representation, written big-endian
   (`BinaryPrimitives.WriteSingleBigEndian`).
@@ -375,12 +397,14 @@ when they ship.
   authenticity for everything inside, JSON or binary, as a single record
   stream. Per-frame MACs would duplicate that. The header carries no
   HMAC, no checksum.
-- **Corruption inside a TLS record.** TLS terminates the connection on
-  MAC failure; we never see corrupt application bytes when TLS is on.
-  When TLS is off (`--insecure` dev mode) a corrupt header byte causes
-  the framer to drop the connection with `Error`; the resync alternative
-  (scan ahead for the next `{` or `0xFE`) is a worse experience than a
-  reconnect.
+- **Corruption inside a TLS record.** No per-frame CRC because TLS —
+  *once `--insecure` defaults to false* (TLS Phase 2). Until then a
+  corrupt high byte in a body is silently rendered. TLS terminates the
+  connection on MAC failure; we never see corrupt application bytes when
+  TLS is on. When TLS is off (`--insecure` dev mode) a corrupt header
+  byte causes the framer to drop the connection with `Error`; the resync
+  alternative (scan ahead for the next `{` or `0xFE`) is a worse
+  experience than a reconnect.
 
 ## Server wiring
 
@@ -664,6 +688,15 @@ mirrors the existing `summarize_draw` / `summarize_cursor` shape. The
 field dictionary `MESSAGE_TYPE_NAMES` already exists; reuse it for the
 type-id label.
 
+Note: the unknown-leading-byte branch in the dissector consumes one byte
+and continues — deliberately *not* the same as `ClientHandler`, which
+closes the connection. The dissector reads from packet captures we can't
+re-request; bailing out of dissection on the first bad byte would hide
+every well-formed frame later in the same capture. The server has a live
+peer that can reconnect, so dropping a desynced connection is the safer
+option there. Phase-5 dissector implementer: do not copy the server's
+close-the-connection branch.
+
 The dissector lands as a single Phase-5 PR after the wire format ships
 and a sample capture exists to validate against.
 
@@ -704,8 +737,14 @@ should never emit a TCP `CursorMove`; a client whose UDP path is dead
 emits TCP `CursorMove` and the binary form here is the bandwidth win on
 that path. The `senderUint` and `roomHash` fields in the envelope match
 the UDP cursor frame's fields by design — same 32-bit-from-8-hex-GUID
-trick, same xxhash32(NFC(roomId)). An attentive grader sees the
-consistency.
+trick, same xxhash32(NFC(roomId)) via the shared `Shared/Util/RoomKey.cs`
+helper. An attentive grader sees the consistency.
+
+Follow-up: udp-cursor-channel.md prose says NFC but its current code
+samples skip the normalize step before hashing. That doc needs the same
+RoomKey.cs centralization edit so both paths land on the helper together
+— mismatched roomHash between TCP-binary and UDP-cursor would route a
+client's pen to one shard and their cursor to another.
 
 **LAN discovery (`docs/design/lan-discovery-and-server-cache.md`).**
 UDP multicast on a different port (5099). No interaction.
@@ -726,6 +765,12 @@ regression. Estimate: 4 days for a junior dev. The risky bit is the
 bytes-not-chars buffer rewrite — the rest is mechanical, and the
 UTF-8-split-across-reads case the existing comments worry about goes
 away once decoding only happens inside `{...}` boundaries.
+
+The Phase 1 client-side binary `Error` path is exercised by test frames
+only — no client emits binary in Phase 1, so implementers should not
+speculatively wire client-side fallback against it. Server emits the
+"binary type not yet supported" `Error` for hand-crafted test frames;
+production clients never see it.
 
 **Phase 2 (M) — `Draw{Pen}` binary encoder + decoder.** Add
 `PenBinaryEncoder` and `PenBinaryDecoder`. `NetMessage<T>.SerializeBytes()`
@@ -786,7 +831,8 @@ short coord values lands closer to 540).
 - Color + strokeWidth + opacity + dashStyle + penStyle: 10 B
 - Point count + 50 × (int16, int16): 202 B
 
-Total: **284 B** for a Pen with no GroupId; **301 B** with a GroupId.
+Total: **284 B** for a Pen with no GroupId; **300 B** with a GroupId
+(284 + 16 = 300, matching Example 1).
 
 **Ratio: ~2× reduction** at 50 points. Crossover is around 5 points;
 real strokes are 30–500 points, so binary wins on every realistic Pen.
