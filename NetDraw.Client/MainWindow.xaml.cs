@@ -648,6 +648,7 @@ public partial class MainWindow : Window
         var actions = fileService.Load(dialog.FileName);
         if (actions == null) { MessageBox.Show("File không hợp lệ!", "Lỗi"); return; }
         _vm.Canvas.HandleSnapshot(actions);
+        BroadcastActions(actions);
     }
 
     private void BtnExport_Click(object s, RoutedEventArgs e)
@@ -686,6 +687,7 @@ public partial class MainWindow : Window
             _history.Add(action, isLocal: true);
             RenderAction(action);
             AddHistoryItem(action);
+            BroadcastAction(action);
         }
         catch (Exception ex) { MessageBox.Show($"Lỗi: {ex.Message}", "Import ảnh"); }
     }
@@ -702,7 +704,22 @@ public partial class MainWindow : Window
             _history.Add(action, isLocal: true);
             RenderAction(action);
             AddHistoryItem(action);
+            BroadcastAction(action);
         }
+    }
+
+    private void BroadcastAction(DrawActionBase action)
+    {
+        if (!_vm.Network.IsConnected) return;
+        var msg = NetMessage<DrawPayload>.Create(MessageType.Draw, _vm.Canvas.UserId, _vm.Canvas.UserName, _vm.Canvas.RoomId,
+            new DrawPayload { Action = action });
+        _ = _vm.Network.SendAsync(msg);
+    }
+
+    private void BroadcastActions(List<DrawActionBase> actions)
+    {
+        if (!_vm.Network.IsConnected) return;
+        foreach (var action in actions) BroadcastAction(action);
     }
 
     #endregion
