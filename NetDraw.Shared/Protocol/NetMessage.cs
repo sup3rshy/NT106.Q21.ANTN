@@ -18,6 +18,9 @@ public class NetMessage<T> where T : IPayload
         NullValueHandling = NullValueHandling.Ignore
     };
 
+    [JsonProperty("version")]
+    public int Version { get; set; } = ProtocolVersion.Current;
+
     [JsonProperty("type")]
     public MessageType Type { get; set; }
 

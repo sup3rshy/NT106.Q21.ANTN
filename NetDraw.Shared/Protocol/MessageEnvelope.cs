@@ -29,7 +29,8 @@ public static class MessageEnvelope
         string SenderName,
         string RoomId,
         long Timestamp,
-        JObject? RawPayload);
+        JObject? RawPayload,
+        int Version);
 
     /// <summary>
     /// Parse only the envelope fields from a JSON message string.
@@ -56,9 +57,10 @@ public static class MessageEnvelope
             var senderName = jObject["senderName"]?.Value<string>() ?? string.Empty;
             var roomId     = jObject["roomId"]?.Value<string>()     ?? string.Empty;
             var timestamp  = jObject["timestamp"]?.Value<long>()    ?? 0L;
+            var version    = jObject["version"]?.Value<int>()       ?? 0;
             var rawPayload = jObject["payload"] as JObject;
 
-            return new Envelope(type, senderId, senderName, roomId, timestamp, rawPayload);
+            return new Envelope(type, senderId, senderName, roomId, timestamp, rawPayload, version);
         }
         catch
         {
