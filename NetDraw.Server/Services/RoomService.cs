@@ -99,6 +99,13 @@ public class RoomService : IRoomService
     {
         var room = GetRoom(roomId);
         if (room == null) return;
+
+        // Server-out envelopes never carry a session token. If a future handler ever
+        // copies the inbound envelope's token onto a NetMessage and broadcasts it,
+        // every other room member would receive the originator's auth credential in
+        // cleartext — exactly the spoof the token system is meant to prevent.
+        message.SessionToken = string.Empty;
+
         var json = message.Serialize();
         var sends = room.GetClients()
             .Where(c => c != exclude)
