@@ -53,10 +53,12 @@ public class RoomService : IRoomService
         var room = GetRoom(roomId);
         if (room == null) return;
         var json = message.Serialize();
-        foreach (var client in room.GetClients())
-        {
-            if (client != exclude)
-                await client.SendRawAsync(json);
-        }
+        // Fan out concurrently. A single slow socket no longer forces every other client
+        // to wait its turn before its send even starts. SendRawAsync handles its own
+        // errors and disconnects, so failures don't propagate out of WhenAll.
+        var sends = room.GetClients()
+            .Where(c => c != exclude)
+            .Select(c => c.SendRawAsync(json));
+        await Task.WhenAll(sends);
     }
 }
