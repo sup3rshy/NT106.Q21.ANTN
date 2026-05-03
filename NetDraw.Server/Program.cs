@@ -80,7 +80,7 @@ _ = Task.Run(() => healthServer.RunAsync(healthCts.Token));
 // Start server
 var server = new DrawServer(port, dispatcher, clientRegistry, roomService, rateLimiter, loggerFactory);
 startupLogger.LogInformation("Starting on port {Port}", port);
-startupLogger.LogInformation("Health endpoint: http://+:{HealthPort}/health", healthPort);
+startupLogger.LogInformation("Health endpoint: {Prefix}health", healthServer.BoundPrefix);
 startupLogger.LogInformation("Claude API key: {KeyStatus}", string.IsNullOrWhiteSpace(apiKey) ? "(none — fallback parser only)" : "present");
 startupLogger.LogInformation("MCP project: {McpProjectPath}", mcpProjectPath ?? "(not found)");
 await server.StartAsync();

@@ -14,6 +14,9 @@ public class HttpHealthServer
     private readonly ILogger<HttpHealthServer> _logger;
     private readonly DateTimeOffset _startedAt;
     private readonly SemaphoreSlim _concurrencyLimit;
+    private readonly HttpListener _listener;
+
+    public string BoundPrefix { get; }
 
     public HttpHealthServer(int port, IRoomService roomService, ILogger<HttpHealthServer>? logger = null, int maxConcurrent = 16)
     {
@@ -23,30 +26,35 @@ public class HttpHealthServer
         _logger = logger ?? NullLogger<HttpHealthServer>.Instance;
         _startedAt = DateTimeOffset.UtcNow;
         _concurrencyLimit = new SemaphoreSlim(maxConcurrent, maxConcurrent);
-    }
 
-    public async Task RunAsync(CancellationToken ct)
-    {
+        // Bind synchronously so BoundPrefix reflects the actual prefix the listener accepted —
+        // "+" needs a netsh ACL on Windows and falls back to "localhost".
         var listener = new HttpListener();
-        // "+" binds all local interfaces so an external load balancer can probe; "localhost" would
-        // only answer same-host probes. On Linux this needs no ACL; on Windows it requires netsh.
-        listener.Prefixes.Add($"http://+:{_port}/");
+        var primaryPrefix = $"http://+:{_port}/";
+        listener.Prefixes.Add(primaryPrefix);
         try
         {
             listener.Start();
+            BoundPrefix = primaryPrefix;
         }
         catch (HttpListenerException ex)
         {
             _logger.LogWarning(ex, "Failed to bind on port {Port} with prefix '+'; falling back to 'localhost'", _port);
             listener = new HttpListener();
-            listener.Prefixes.Add($"http://localhost:{_port}/");
+            var fallbackPrefix = $"http://localhost:{_port}/";
+            listener.Prefixes.Add(fallbackPrefix);
             listener.Start();
+            BoundPrefix = fallbackPrefix;
         }
+        _listener = listener;
+        _logger.LogInformation("Listening on {Prefix}", BoundPrefix);
+    }
 
-        _logger.LogInformation("Listening on port {Port}", _port);
+    public async Task RunAsync(CancellationToken ct)
+    {
         using var registration = ct.Register(() =>
         {
-            try { listener.Stop(); } catch { }
+            try { _listener.Stop(); } catch { }
         });
 
         while (!ct.IsCancellationRequested)
@@ -54,7 +62,7 @@ public class HttpHealthServer
             HttpListenerContext ctx;
             try
             {
-                ctx = await listener.GetContextAsync();
+                ctx = await _listener.GetContextAsync();
             }
             catch (ObjectDisposedException) { break; }
             catch (HttpListenerException) { break; }
@@ -72,7 +80,7 @@ public class HttpHealthServer
             });
         }
 
-        try { listener.Close(); } catch { }
+        try { _listener.Close(); } catch { }
         _logger.LogInformation("Stopped");
     }
 
