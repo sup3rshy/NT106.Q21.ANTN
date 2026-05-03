@@ -19,6 +19,7 @@ public class DrawServer
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<DrawServer> _logger;
     private readonly CancellationTokenSource _cts = new();
+    private bool _bound;
 
     public DrawServer(int port, MessageDispatcher dispatcher, IClientRegistry clientRegistry, IRoomService roomService, IRateLimiter rateLimiter, ILoggerFactory loggerFactory)
     {
@@ -31,12 +32,20 @@ public class DrawServer
         _logger = loggerFactory.CreateLogger<DrawServer>();
     }
 
-    // Read after StartAsync() has bound the listener (port 0 → kernel-assigned port).
+    // Read after Bind() (or StartAsync) so the kernel has assigned a port (port 0 → ephemeral).
     public int BoundPort => ((IPEndPoint)_listener.LocalEndpoint).Port;
+
+    // Synchronous bind — lets callers (tests) read BoundPort before launching the accept loop.
+    public void Bind()
+    {
+        if (_bound) return;
+        _listener.Start();
+        _bound = true;
+    }
 
     public async Task StartAsync()
     {
-        _listener.Start();
+        Bind();
         _logger.LogInformation("Listening on port {Port}", ((IPEndPoint)_listener.LocalEndpoint).Port);
 
         while (!_cts.IsCancellationRequested)
