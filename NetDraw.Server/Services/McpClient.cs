@@ -1,5 +1,6 @@
 using Anthropic.SDK;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Client;
 using NetDraw.Shared.Models;
 using NetDraw.Shared.Models.Actions;
@@ -43,6 +44,7 @@ public class McpClient : IMcpClient, IAsyncDisposable
     private readonly string? _mcpProjectPath;
     private readonly int _canvasWidth;
     private readonly int _canvasHeight;
+    private readonly ILogger<McpClient> _logger;
 
     private ModelContextProtocol.Client.McpClient? _mcp;
     private IList<McpClientTool>? _tools;
@@ -51,10 +53,11 @@ public class McpClient : IMcpClient, IAsyncDisposable
     private volatile bool _ready;
     private bool _disposed;
 
-    public McpClient(string? apiKey, string? mcpProjectPath, int canvasWidth = 1000, int canvasHeight = 700)
+    public McpClient(string? apiKey, string? mcpProjectPath, ILogger<McpClient> logger, int canvasWidth = 1000, int canvasHeight = 700)
     {
         _apiKey = apiKey;
         _mcpProjectPath = mcpProjectPath;
+        _logger = logger;
         _canvasWidth = canvasWidth;
         _canvasHeight = canvasHeight;
     }
@@ -72,7 +75,7 @@ public class McpClient : IMcpClient, IAsyncDisposable
             try { await EnsureInitializedAsync(CancellationToken.None); }
             catch (Exception ex)
             {
-                Console.WriteLine($"[MCP] Init failed: {ex.Message} — AI will use fallback parser.");
+                _logger.LogError(ex, "MCP init failed — AI will use fallback parser");
             }
         });
         return Task.CompletedTask;
@@ -83,12 +86,12 @@ public class McpClient : IMcpClient, IAsyncDisposable
         if (_ready) return;
         if (string.IsNullOrWhiteSpace(_apiKey))
         {
-            Console.WriteLine("[MCP] No Claude API key — AI disabled, fallback parser will be used.");
+            _logger.LogInformation("No Claude API key — AI disabled, fallback parser will be used");
             return;
         }
         if (string.IsNullOrWhiteSpace(_mcpProjectPath) || !File.Exists(_mcpProjectPath))
         {
-            Console.WriteLine($"[MCP] MCP server project not found at '{_mcpProjectPath}' — AI disabled.");
+            _logger.LogWarning("MCP server project not found at '{Path}' — AI disabled", _mcpProjectPath);
             return;
         }
 
@@ -97,7 +100,7 @@ public class McpClient : IMcpClient, IAsyncDisposable
         {
             if (_ready) return;
 
-            Console.WriteLine("[MCP] Launching NetDraw.McpServer over stdio…");
+            _logger.LogInformation("Launching NetDraw.McpServer over stdio");
             var transport = new StdioClientTransport(new StdioClientTransportOptions
             {
                 Name = "NetDraw Drawing Tools",
@@ -107,7 +110,8 @@ public class McpClient : IMcpClient, IAsyncDisposable
 
             _mcp = await ModelContextProtocol.Client.McpClient.CreateAsync(transport, cancellationToken: ct);
             _tools = await _mcp.ListToolsAsync(cancellationToken: ct);
-            Console.WriteLine($"[MCP] Connected. {_tools.Count} tools: {string.Join(", ", _tools.Select(t => t.Name))}");
+            _logger.LogInformation("MCP connected with {ToolCount} tools: {Tools}",
+                _tools.Count, string.Join(", ", _tools.Select(t => t.Name)));
 
             var anthropic = new AnthropicClient(_apiKey!);
             _chat = anthropic.Messages
@@ -128,13 +132,13 @@ public class McpClient : IMcpClient, IAsyncDisposable
     public async Task<AiResultPayload?> SendCommandAsync(string command, string roomId)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        Console.WriteLine($"[MCP] ▶ \"{Truncate(command, 80)}\"  room={roomId}");
+        _logger.LogInformation("MCP request in {RoomId}: {Command}", roomId, Truncate(command, 80));
 
         if (!_ready)
         {
-            Console.WriteLine("[MCP] Not ready, attempting init…");
+            _logger.LogInformation("MCP not ready, attempting init");
             try { await EnsureInitializedAsync(CancellationToken.None); }
-            catch (Exception ex) { Console.WriteLine($"[MCP] Init error: {ex.Message}"); }
+            catch (Exception ex) { _logger.LogError(ex, "MCP init error"); }
             if (!_ready) return null;
         }
 
@@ -252,7 +256,8 @@ Canvas: {_canvasWidth} wide × {_canvasHeight} tall. Origin top-left. +x right, 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(90));
             var response = await _chat.GetResponseAsync(messages, options, cts.Token);
             var actions = ExtractActions(response);
-            Console.WriteLine($"[MCP] ← {actions.Count} action(s) extracted in {sw.ElapsedMilliseconds} ms");
+            _logger.LogInformation("MCP extracted {ActionCount} action(s) in {ElapsedMs} ms",
+                actions.Count, sw.ElapsedMilliseconds);
 
             if (actions.Count == 0)
             {
@@ -266,12 +271,12 @@ Canvas: {_canvasWidth} wide × {_canvasHeight} tall. Origin top-left. +x right, 
         }
         catch (OperationCanceledException)
         {
-            Console.WriteLine($"[MCP] ✘ Claude timeout after {sw.ElapsedMilliseconds} ms");
+            _logger.LogWarning("Claude timeout after {ElapsedMs} ms", sw.ElapsedMilliseconds);
             return new AiResultPayload { Error = "Claude timeout (>90s)." };
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[MCP] ✘ Error after {sw.ElapsedMilliseconds} ms: {ex.Message}");
+            _logger.LogError(ex, "MCP error after {ElapsedMs} ms", sw.ElapsedMilliseconds);
             return new AiResultPayload { Error = ex.Message };
         }
     }
@@ -367,7 +372,7 @@ Canvas: {_canvasWidth} wide × {_canvasHeight} tall. Origin top-left. +x right, 
          "The user asked for a sun. Call draw_sun ONCE."),
     };
 
-    private static (IList<McpClientTool> tools, string hint) RouteByKeyword(string command, IList<McpClientTool> allTools)
+    private (IList<McpClientTool> tools, string hint) RouteByKeyword(string command, IList<McpClientTool> allTools)
     {
         string lc = " " + command.ToLowerInvariant() + " ";
         foreach (var (kws, toolName, hint) in Routes)
@@ -379,7 +384,7 @@ Canvas: {_canvasWidth} wide × {_canvasHeight} tall. Origin top-left. +x right, 
             // fall back to the full tool set with draw_many — keyword routing would hurt there.
             int matchedSubjects = Routes.Count(r => r.keywords.Any(k => lc.Contains(k)));
             if (matchedSubjects > 1) break;
-            Console.WriteLine($"[MCP]   routed → exposing only '{toolName}' (keyword match)");
+            _logger.LogDebug("MCP routed: exposing only '{Tool}' (keyword match)", toolName);
             return (new[] { picked }, "\n\n━━━ ROUTED ━━━\n" + hint);
         }
         return (allTools, string.Empty);
@@ -391,7 +396,7 @@ Canvas: {_canvasWidth} wide × {_canvasHeight} tall. Origin top-left. +x right, 
     /// Walk every tool result in the chat response and rebuild the
     /// <see cref="DrawActionBase"/> objects our renderer expects.
     /// </summary>
-    private static List<DrawActionBase> ExtractActions(ChatResponse response)
+    private List<DrawActionBase> ExtractActions(ChatResponse response)
     {
         var list = new List<DrawActionBase>();
         var toolCallCounts = new Dictionary<string, int>();
@@ -408,7 +413,7 @@ Canvas: {_canvasWidth} wide × {_canvasHeight} tall. Origin top-left. +x right, 
                     if (fc.Arguments != null)
                     {
                         var argStr = string.Join(", ", fc.Arguments.Select(kv => $"{kv.Key}={kv.Value}"));
-                        Console.WriteLine($"[MCP]     {fc.Name}({argStr})");
+                        _logger.LogTrace("MCP tool call: {Tool}({Args})", fc.Name, argStr);
                     }
                 }
                 if (content is not FunctionResultContent fr) continue;
@@ -430,7 +435,7 @@ Canvas: {_canvasWidth} wide × {_canvasHeight} tall. Origin top-left. +x right, 
         if (toolCallCounts.Count > 0)
         {
             var summary = string.Join(", ", toolCallCounts.Select(kv => $"{kv.Key}×{kv.Value}"));
-            Console.WriteLine($"[MCP]   tools used: {summary}");
+            _logger.LogDebug("MCP tools used: {Summary}", summary);
         }
         return list;
     }
@@ -471,7 +476,7 @@ Canvas: {_canvasWidth} wide × {_canvasHeight} tall. Origin top-left. +x right, 
         if (token.Type == JTokenType.Object) yield return token;
     }
 
-    private static DrawActionBase? TryDeserialize(JToken payload)
+    private DrawActionBase? TryDeserialize(JToken payload)
     {
         try
         {
@@ -480,7 +485,7 @@ Canvas: {_canvasWidth} wide × {_canvasHeight} tall. Origin top-left. +x right, 
         }
         catch (JsonException ex)
         {
-            Console.WriteLine($"[MCP] Failed to deserialize action: {ex.Message}");
+            _logger.LogWarning(ex, "MCP failed to deserialize action");
             return null;
         }
     }
