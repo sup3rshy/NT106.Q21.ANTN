@@ -20,6 +20,8 @@ public class RoomService : IRoomService
     public int MaxUsersPerRoom { get; }
     public int MaxRooms { get; }
 
+    private readonly object _membershipLock = new();
+
     public RoomService(int maxUsersPerRoom = 10, int maxRooms = 100)
     {
         MaxUsersPerRoom = maxUsersPerRoom;
@@ -47,14 +49,13 @@ public class RoomService : IRoomService
 
     public JoinResult AddUserToRoom(string roomId, ClientHandler client, UserInfo user)
     {
-        if (!_rooms.ContainsKey(roomId) && _rooms.Count >= MaxRooms)
-            return JoinResult.ServerFull;
-
-        var room = GetOrCreateRoom(roomId);
-        lock (room)
+        lock (_membershipLock)
         {
-            // Re-join from same client/UserId is allowed (Room.AddClient dedupes); only block
-            // genuinely new joiners when the room is at capacity.
+            if (!_rooms.ContainsKey(roomId) && _rooms.Count >= MaxRooms)
+                return JoinResult.ServerFull;
+
+            var room = _rooms.GetOrAdd(roomId, id => new Room(id));
+
             bool isRejoin = room.GetClients().Contains(client) || room.GetUsers().Any(u => u.UserId == user.UserId);
             if (!isRejoin && room.ClientCount >= MaxUsersPerRoom)
                 return JoinResult.RoomFull;
@@ -81,8 +82,11 @@ public class RoomService : IRoomService
 
     public void RemoveUserFromRoom(ClientHandler client)
     {
-        if (_clientRooms.TryRemove(client, out var roomId))
-            GetRoom(roomId)?.RemoveClient(client);
+        lock (_membershipLock)
+        {
+            if (_clientRooms.TryRemove(client, out var roomId))
+                GetRoom(roomId)?.RemoveClient(client);
+        }
     }
 
     public string? GetRoomIdForClient(ClientHandler client)
