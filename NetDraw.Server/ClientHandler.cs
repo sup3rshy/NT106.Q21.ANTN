@@ -79,10 +79,20 @@ public class ClientHandler
             if (!string.IsNullOrWhiteSpace(json))
             {
                 var envelope = MessageEnvelope.Parse(json);
-                if (envelope != null && MessageReceived != null)
+                if (envelope == null) continue;
+
+                if (envelope.Type == MessageType.JoinRoom && envelope.Version != ProtocolVersion.Current)
                 {
-                    await MessageReceived(this, envelope.Type, envelope.SenderId, envelope.SenderName, envelope.RoomId, envelope.RawPayload);
+                    var err = NetMessage<ErrorPayload>.Create(
+                        MessageType.Error, "server", "Server", envelope.RoomId,
+                        new ErrorPayload { Message = $"Protocol version {envelope.Version} not supported (server expects {ProtocolVersion.Current})" });
+                    await SendAsync(err);
+                    _isConnected = false;
+                    break;
                 }
+
+                if (MessageReceived != null)
+                    await MessageReceived(this, envelope.Type, envelope.SenderId, envelope.SenderName, envelope.RoomId, envelope.RawPayload);
             }
         }
         _buffer.Clear();
