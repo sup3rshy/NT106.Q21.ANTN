@@ -75,6 +75,7 @@ dispatcher.Register(new AiHandler(roomService, mcpClient, fallbackParser, logger
 int healthPort = ReadIntEnv("HEALTH_PORT", 5050, min: 1, max: 65535);
 var healthServer = new HttpHealthServer(healthPort, roomService, loggerFactory.CreateLogger<HttpHealthServer>());
 var healthCts = new CancellationTokenSource();
+AppDomain.CurrentDomain.ProcessExit += (_, _) => { healthCts.Cancel(); healthCts.Dispose(); };
 _ = Task.Run(() => healthServer.RunAsync(healthCts.Token));
 
 // Start server
