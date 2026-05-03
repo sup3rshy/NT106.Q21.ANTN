@@ -17,7 +17,12 @@ string? mcpProjectPath = ResolveMcpProjectPath();
 // Services
 var clientRegistry = new ClientRegistry();
 var roomService = new RoomService();
-var rateLimiter = new TokenBucketRateLimiter(capacity: 200, refillPerSec: 50);
+
+int rateCapacity = ReadIntEnv("RATE_LIMIT_CAPACITY", 200, min: 1);
+double rateRefill = ReadDoubleEnv("RATE_LIMIT_REFILL_PER_SEC", 50, min: 0.0001);
+int maxAiPromptBytes = ReadIntEnv("MAX_AI_PROMPT_BYTES", 4096, min: 1);
+
+var rateLimiter = new TokenBucketRateLimiter(capacity: rateCapacity, refillPerSec: rateRefill);
 // Canvas dimensions must match the client's DrawCanvas (MainWindow.xaml) — currently 3000×2000.
 // Claude uses these numbers to pick sensible (cx, cy, size) params; if they mismatch, every
 // drawing lands in the wrong place on the real canvas.
@@ -38,7 +43,7 @@ dispatcher.Register(new DrawHandler(roomService));
 dispatcher.Register(new ObjectHandler(roomService));
 dispatcher.Register(new PresenceHandler(roomService));
 dispatcher.Register(new ChatHandler(roomService));
-dispatcher.Register(new AiHandler(roomService, mcpClient, fallbackParser));
+dispatcher.Register(new AiHandler(roomService, mcpClient, fallbackParser, maxPromptBytes: maxAiPromptBytes));
 
 // Start server
 var server = new DrawServer(port, dispatcher, clientRegistry, roomService, rateLimiter);
@@ -46,6 +51,26 @@ Console.WriteLine($"[NetDraw Server] Starting on port {port}...");
 Console.WriteLine($"[NetDraw Server] Claude API key: {(string.IsNullOrWhiteSpace(apiKey) ? "(none — fallback parser only)" : "present")}");
 Console.WriteLine($"[NetDraw Server] MCP project:    {mcpProjectPath ?? "(not found)"}");
 await server.StartAsync();
+
+static int ReadIntEnv(string name, int @default, int min)
+{
+    var raw = Environment.GetEnvironmentVariable(name);
+    if (string.IsNullOrWhiteSpace(raw)) return @default;
+    if (int.TryParse(raw, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var v) && v >= min)
+        return v;
+    Console.Error.WriteLine($"[config] Invalid {name}=\"{raw}\" (need int >= {min}); using default {@default}");
+    return @default;
+}
+
+static double ReadDoubleEnv(string name, double @default, double min)
+{
+    var raw = Environment.GetEnvironmentVariable(name);
+    if (string.IsNullOrWhiteSpace(raw)) return @default;
+    if (double.TryParse(raw, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) && v >= min)
+        return v;
+    Console.Error.WriteLine($"[config] Invalid {name}=\"{raw}\" (need number >= {min}); using default {@default}");
+    return @default;
+}
 
 static string? ResolveMcpProjectPath()
 {
