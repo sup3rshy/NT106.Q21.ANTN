@@ -17,6 +17,7 @@ public class ErrorPayload : IPayload
 public static class ErrorCodes
 {
     public const string AuthTokenMismatch = "AUTH_TOKEN_MISMATCH";
+    public const string AuthResumeFailed  = "AUTH_RESUME_FAILED";
     public const string ProtocolVersion   = "PROTOCOL_VERSION";
     public const string RateLimited       = "RATE_LIMITED";
 }

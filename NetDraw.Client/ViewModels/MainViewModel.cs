@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Threading;
 using System.Windows;
 using System.Windows.Input;
 using NetDraw.Client.Drawing;
@@ -22,6 +23,7 @@ public class MainViewModel : ViewModelBase
     public ObservableCollection<DiscoveredServer> DiscoveredServers { get; } = new();
 
     private bool _isConnected;
+    private int _reconnectInFlight;
     private string _serverHost = "127.0.0.1";
     private int _serverPort = 5000;
     private string _roomId = "default";
@@ -65,6 +67,10 @@ public class MainViewModel : ViewModelBase
         {
             IsConnected = false;
             StatusText = reason;
+            if (!Network.LastDisconnectWasUserInitiated && !string.IsNullOrEmpty(Network.LastSessionToken))
+            {
+                _ = Task.Run(AttemptReconnectAsync);
+            }
         });
 
         // Pre-populate from cache so the dropdown isn't empty on launch — beacons may be 2s away.
@@ -127,6 +133,40 @@ public class MainViewModel : ViewModelBase
         }
     }
 
+    private async Task AttemptReconnectAsync()
+    {
+        if (Interlocked.Exchange(ref _reconnectInFlight, 1) == 1) return;
+        try
+        {
+            var token = Network.LastSessionToken;
+            if (string.IsNullOrEmpty(token)) return;
+            int[] backoffMs = { 1000, 2000, 4000 };
+            for (int attempt = 0; attempt < backoffMs.Length; attempt++)
+            {
+                await Task.Delay(backoffMs[attempt]);
+                if (Network.LastDisconnectWasUserInitiated) return;
+
+                await Application.Current.Dispatcher.InvokeAsync(() => StatusText = $"Đang kết nối lại... ({attempt + 1}/{backoffMs.Length})");
+                bool ok = await Network.ConnectAsync(ServerHost, ServerPort);
+                if (!ok) continue;
+
+                IsConnected = true;
+
+                var resumeMsg = NetMessage<ResumePayload>.Create(
+                    MessageType.Resume, Network.ClientId, UserName, RoomId,
+                    new ResumePayload { Token = token });
+                await Network.SendAsync(resumeMsg);
+                return;
+            }
+
+            await Application.Current.Dispatcher.InvokeAsync(() => StatusText = "Không kết nối lại được. Hãy bấm Kết nối.");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _reconnectInFlight, 0);
+        }
+    }
+
     private async Task JoinRoomAsync(string roomId)
     {
         if (!IsConnected) return;
@@ -173,18 +213,26 @@ public class MainViewModel : ViewModelBase
         switch (type)
         {
             case MessageType.RoomJoined:
+            case MessageType.ResumeAccepted:
                 var joined = MessageEnvelope.DeserializePayload<RoomJoinedPayload>(payload);
                 if (joined != null)
                 {
                     if (!string.IsNullOrEmpty(joined.SessionToken))
                         Network.SessionToken = joined.SessionToken;
 
-                    _events.Publish(new AppendChatEvent($"[Hệ thống] Bạn đã vào phòng '{joined.Room.RoomName}'", true));
+                    var sysMsg = type == MessageType.ResumeAccepted
+                        ? $"[Hệ thống] Đã kết nối lại vào phòng '{joined.Room.RoomName}'"
+                        : $"[Hệ thống] Bạn đã vào phòng '{joined.Room.RoomName}'";
+                    _events.Publish(new AppendChatEvent(sysMsg, true));
                     _events.Publish(new UserListUpdatedEvent(joined.Users));
-                    // Sync self-color from the server-assigned UserInfo
                     var me = joined.Users.FirstOrDefault(u => u.UserId == Canvas.UserId);
                     if (me != null) Canvas.UserColor = me.Color;
                     Canvas.HandleSnapshot(joined.History);
+                    if (type == MessageType.ResumeAccepted)
+                    {
+                        IsConnected = true;
+                        StatusText = $"Đã kết nối ({ServerHost}:{ServerPort})";
+                    }
                 }
                 break;
 
@@ -289,7 +337,16 @@ public class MainViewModel : ViewModelBase
 
             case MessageType.Error:
                 var error = MessageEnvelope.DeserializePayload<ErrorPayload>(payload);
-                if (error != null) _events.Publish(new AppendChatEvent($"[Lỗi] {error.Message}", true));
+                if (error != null)
+                {
+                    _events.Publish(new AppendChatEvent($"[Lỗi] {error.Message}", true));
+                    if (error.Code == ErrorCodes.AuthResumeFailed)
+                    {
+                        Network.SessionToken = string.Empty;
+                        Network.ClearLastSessionToken();
+                        _ = Application.Current.Dispatcher.InvokeAsync(async () => await JoinRoomAsync(RoomId));
+                    }
+                }
                 break;
         }
     }

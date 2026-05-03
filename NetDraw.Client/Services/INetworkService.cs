@@ -9,8 +9,11 @@ public interface INetworkService
     string ClientId { get; }
     bool IsConnected { get; }
     string SessionToken { get; set; }
+    string LastSessionToken { get; }
+    bool LastDisconnectWasUserInitiated { get; }
     Task<bool> ConnectAsync(string host, int port);
     void Disconnect();
+    void ClearLastSessionToken();
     Task SendAsync<T>(NetMessage<T> message) where T : IPayload;
 
     event Action<MessageType, string, string, string, JObject?>? MessageReceived;

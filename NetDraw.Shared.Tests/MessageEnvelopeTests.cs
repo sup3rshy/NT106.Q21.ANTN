@@ -133,4 +133,18 @@ public class MessageEnvelopeTests
         Assert.NotNull(env);
         Assert.Equal(string.Empty, env!.SessionToken);
     }
+
+    [Fact]
+    public void Parse_ReadsResumeMessageType()
+    {
+        var msg = NetMessage<ResumePayload>.Create(
+            MessageType.Resume, "u1", "Alice", "room-1",
+            new ResumePayload { Token = "abc-_xyz" });
+        var env = MessageEnvelope.Parse(msg.Serialize());
+        Assert.NotNull(env);
+        Assert.Equal(MessageType.Resume, env!.Type);
+        var payload = MessageEnvelope.DeserializePayload<ResumePayload>(env.RawPayload);
+        Assert.NotNull(payload);
+        Assert.Equal("abc-_xyz", payload!.Token);
+    }
 }
