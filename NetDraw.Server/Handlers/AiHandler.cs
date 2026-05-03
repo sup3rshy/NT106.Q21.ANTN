@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Microsoft.Extensions.Logging;
 using NetDraw.Server.Pipeline;
 using NetDraw.Server.Services;
 using NetDraw.Shared.Interfaces;
@@ -13,13 +14,15 @@ public class AiHandler : IMessageHandler
     private readonly IRoomService _roomService;
     private readonly IMcpClient _mcpClient;
     private readonly IAiParser _fallbackParser;
+    private readonly ILogger<AiHandler> _logger;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _roomQueues = new();
 
-    public AiHandler(IRoomService roomService, IMcpClient mcpClient, IAiParser fallbackParser)
+    public AiHandler(IRoomService roomService, IMcpClient mcpClient, IAiParser fallbackParser, ILogger<AiHandler> logger)
     {
         _roomService = roomService;
         _mcpClient = mcpClient;
         _fallbackParser = fallbackParser;
+        _logger = logger;
     }
 
     public bool CanHandle(MessageType type) => type is MessageType.AiCommand;
@@ -42,7 +45,7 @@ public class AiHandler : IMessageHandler
         {
             if (_roomService.GetRoom(roomId) == null)
             {
-                Console.WriteLine($"[AI] reject: room not found: {roomId}");
+                _logger.LogWarning("AI reject: room not found: {RoomId}", LogHelper.SanitizeForLog(roomId, 80));
                 return;
             }
 
@@ -61,34 +64,38 @@ public class AiHandler : IMessageHandler
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[AI] queue error: {ex}");
+            _logger.LogError(ex, "AI queue error in room {RoomId}", LogHelper.SanitizeForLog(roomId, 80));
         }
     }
 
     private async Task ProcessOneAsync(string prompt, string senderId, string roomId)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        Console.WriteLine($"[AI] ▶ \"{prompt}\"  sender={senderId}  room={roomId}  mcp={(_mcpClient.IsConnected ? "connected" : "offline")}");
+        _logger.LogInformation("AI prompt from {SenderId} in {RoomId} ({PromptLength} chars, mcp={McpStatus})",
+            senderId, roomId, prompt.Length, _mcpClient.IsConnected ? "connected" : "offline");
+        if (_logger.IsEnabled(LogLevel.Debug))
+            _logger.LogDebug("AI prompt body: {Prompt}", LogHelper.SanitizeForLog(prompt));
 
         AiResultPayload result;
         try
         {
             if (_mcpClient.IsConnected)
             {
-                Console.WriteLine($"[AI]   → forwarding to MCP server…");
+                _logger.LogDebug("Forwarding to MCP server");
                 var mcpResult = await _mcpClient.SendCommandAsync(prompt, roomId);
-                Console.WriteLine($"[AI]   ← MCP replied in {sw.ElapsedMilliseconds} ms  actions={mcpResult?.Actions.Count ?? -1}");
+                _logger.LogDebug("MCP replied in {ElapsedMs} ms, actions={ActionCount}",
+                    sw.ElapsedMilliseconds, mcpResult?.Actions.Count ?? -1);
 
                 result = (mcpResult != null && mcpResult.Actions.Count > 0)
                     ? mcpResult
                     : await FallbackParseAsync(prompt);
 
                 if (mcpResult == null || mcpResult.Actions.Count == 0)
-                    Console.WriteLine($"[AI]   ↩ MCP returned empty — using fallback parser");
+                    _logger.LogInformation("MCP returned empty — using fallback parser");
             }
             else
             {
-                Console.WriteLine($"[AI]   → MCP offline, using fallback parser");
+                _logger.LogInformation("MCP offline, using fallback parser");
                 result = await FallbackParseAsync(prompt);
             }
 
@@ -100,11 +107,12 @@ public class AiHandler : IMessageHandler
             var msg = NetMessage<AiResultPayload>.Create(MessageType.AiResult, "server", "AI", roomId, result);
             await _roomService.BroadcastToRoomAsync(roomId, msg);
 
-            Console.WriteLine($"[AI] ✔ done in {sw.ElapsedMilliseconds} ms  → {result.Actions.Count} action(s) broadcast");
+            _logger.LogInformation("AI done in {ElapsedMs} ms, broadcast {ActionCount} action(s)",
+                sw.ElapsedMilliseconds, result.Actions.Count);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[AI] ✘ error after {sw.ElapsedMilliseconds} ms: {ex}");
+            _logger.LogError(ex, "AI processing failed after {ElapsedMs} ms", sw.ElapsedMilliseconds);
         }
     }
 
