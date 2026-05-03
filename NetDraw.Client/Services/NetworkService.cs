@@ -13,6 +13,10 @@ public class NetworkService : INetworkService
     private NetworkStream? _stream;
     private bool _isConnected;
     private readonly StringBuilder _buffer = new();
+    // Decoder (not Encoding.GetString) — keeps state across reads so a UTF-8 sequence
+    // split between two ReadAsync chunks decodes correctly.
+    private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
 
     public string ClientId { get; private set; } = "";
     public bool IsConnected => _isConnected && (_client?.Connected ?? false);
@@ -24,6 +28,9 @@ public class NetworkService : INetworkService
     {
         try
         {
+            _decoder.Reset();
+            _buffer.Clear();
+
             _client = new TcpClient();
             await _client.ConnectAsync(host, port);
             _stream = _client.GetStream();
@@ -44,12 +51,14 @@ public class NetworkService : INetworkService
         try
         {
             byte[] buffer = new byte[8192];
+            char[] charBuffer = new char[8192];
             while (_isConnected && _client?.Connected == true)
             {
                 int bytesRead = await _stream!.ReadAsync(buffer, 0, buffer.Length);
                 if (bytesRead == 0) break;
 
-                _buffer.Append(Encoding.UTF8.GetString(buffer, 0, bytesRead));
+                int charsDecoded = _decoder.GetChars(buffer, 0, bytesRead, charBuffer, 0);
+                _buffer.Append(charBuffer, 0, charsDecoded);
                 string data = _buffer.ToString();
                 int idx;
                 while ((idx = data.IndexOf('\n')) >= 0)
@@ -80,6 +89,7 @@ public class NetworkService : INetworkService
     public async Task SendAsync<T>(NetMessage<T> message) where T : IPayload
     {
         if (!IsConnected || _stream == null) return;
+        await _sendLock.WaitAsync();
         try
         {
             byte[] data = Encoding.UTF8.GetBytes(message.Serialize());
@@ -89,6 +99,10 @@ public class NetworkService : INetworkService
         catch (Exception ex)
         {
             Disconnected?.Invoke($"Lỗi gửi: {ex.Message}");
+        }
+        finally
+        {
+            _sendLock.Release();
         }
     }
 

@@ -640,14 +640,18 @@ public partial class MainWindow : Window
         _events.Publish(new AppendChatEvent($"[Hệ thống] Đã lưu: {System.IO.Path.GetFileName(dialog.FileName)}", true));
     }
 
-    private void BtnLoad_Click(object s, RoutedEventArgs e)
+    private async void BtnLoad_Click(object s, RoutedEventArgs e)
     {
         var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "NetDraw File|*.ndr|JSON|*.json|All|*.*" };
         if (dialog.ShowDialog() != true) return;
         var fileService = new FileService();
         var actions = fileService.Load(dialog.FileName);
         if (actions == null) { MessageBox.Show("File không hợp lệ!", "Lỗi"); return; }
+
+        foreach (var a in actions) { a.UserId = _vm.Canvas.UserId; a.UserName = _vm.Canvas.UserName; }
+
         _vm.Canvas.HandleSnapshot(actions);
+        await BroadcastActionsAsync(actions);
     }
 
     private void BtnExport_Click(object s, RoutedEventArgs e)
@@ -683,9 +687,10 @@ public partial class MainWindow : Window
                 X = Math.Max(0, (DrawCanvas.Width - imgW) / 2),
                 Y = Math.Max(0, (DrawCanvas.Height - imgH) / 2), Width = imgW, Height = imgH, ImageData = base64
             };
-            _history.Add(action);
+            _history.Add(action, isLocal: true);
             RenderAction(action);
             AddHistoryItem(action);
+            BroadcastAction(action);
         }
         catch (Exception ex) { MessageBox.Show($"Lỗi: {ex.Message}", "Import ảnh"); }
     }
@@ -698,10 +703,31 @@ public partial class MainWindow : Window
         foreach (var action in dlg.SelectedActions)
         {
             action.UserId = _vm.Canvas.UserId;
+            action.UserName = _vm.Canvas.UserName;
             action.GroupId = groupId;
-            _history.Add(action);
+            _history.Add(action, isLocal: true);
             RenderAction(action);
             AddHistoryItem(action);
+            BroadcastAction(action);
+        }
+    }
+
+    private void BroadcastAction(DrawActionBase action)
+    {
+        if (!_vm.Network.IsConnected) return;
+        var msg = NetMessage<DrawPayload>.Create(MessageType.Draw, _vm.Canvas.UserId, _vm.Canvas.UserName, _vm.Canvas.RoomId,
+            new DrawPayload { Action = action });
+        _ = _vm.Network.SendAsync(msg);
+    }
+
+    private async Task BroadcastActionsAsync(List<DrawActionBase> actions)
+    {
+        if (!_vm.Network.IsConnected) return;
+        foreach (var action in actions)
+        {
+            var msg = NetMessage<DrawPayload>.Create(MessageType.Draw, _vm.Canvas.UserId, _vm.Canvas.UserName, _vm.Canvas.RoomId,
+                new DrawPayload { Action = action });
+            await _vm.Network.SendAsync(msg);
         }
     }
 
