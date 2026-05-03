@@ -42,6 +42,20 @@ public class RoomHandler : IMessageHandler
 
     private async Task HandleJoinAsync(string senderId, string senderName, string roomId, ClientHandler sender)
     {
+        // Once a connection has been issued a token under one identity, refuse a later
+        // JoinRoom that claims a different senderId on the same TCP — otherwise an
+        // already-issued token can be reused under a hijacked identity (JoinRoom is
+        // token-exempt by design, so the dispatcher's identity check does not run here).
+        if (sender.SessionTokenBytes != null
+            && !string.Equals(sender.UserId, senderId, StringComparison.Ordinal))
+        {
+            var hijackErr = NetMessage<ErrorPayload>.Create(
+                MessageType.Error, "server", "Server", roomId,
+                new ErrorPayload { Message = "session token missing or invalid", Code = ErrorCodes.AuthTokenMismatch });
+            await sender.SendAsync(hijackErr);
+            return;
+        }
+
         var previousRoomId = _roomService.GetRoomIdForClient(sender);
 
         sender.UserId = senderId;

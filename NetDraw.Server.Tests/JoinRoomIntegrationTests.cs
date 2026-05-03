@@ -59,6 +59,7 @@ public class JoinRoomIntegrationTests
             Assert.NotNull(payload);
             Assert.Equal(roomId, payload!.Room.RoomId);
             Assert.Contains(payload.Users, u => u.UserId == userId && u.UserName == userName);
+            Assert.False(string.IsNullOrEmpty(payload.SessionToken));
 
             tcp.Close();
         }

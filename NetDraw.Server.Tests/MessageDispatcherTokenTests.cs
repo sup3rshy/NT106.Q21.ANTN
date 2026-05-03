@@ -103,6 +103,7 @@ public class MessageDispatcherTokenTests
         {
             handler.SessionTokenBytes = MakeToken();
             handler.SessionToken = Base64UrlEncoding.Encode(handler.SessionTokenBytes!);
+            handler.UserId = "alice";
             var dispatcher = MakeDispatcher();
 
             var probe = new ProbeHandler();
@@ -115,6 +116,31 @@ public class MessageDispatcherTokenTests
             await dispatcher.DispatchAsync(envelope, handler);
 
             Assert.True(probe.Invoked);
+        }
+        finally { Cleanup(handler, peerStream, listener); }
+    }
+
+    [Fact(Timeout = 5000)]
+    public async Task NonJoinRoom_WithMatchingToken_ButHijackedSenderId_IsRejected()
+    {
+        var (handler, peerStream, listener) = await CreateConnectedHandlerAsync();
+        try
+        {
+            handler.SessionTokenBytes = MakeToken();
+            handler.SessionToken = Base64UrlEncoding.Encode(handler.SessionTokenBytes!);
+            handler.UserId = "alice";
+
+            var dispatcher = MakeDispatcher();
+            var probe = new ProbeHandler();
+            dispatcher.Register(probe);
+
+            var envelope = new MessageEnvelope.Envelope(
+                MessageType.ChatMessage, "bob", "Bob", "room1", 0, new JObject(), 2,
+                handler.SessionToken);
+
+            await dispatcher.DispatchAsync(envelope, handler);
+
+            Assert.False(probe.Invoked);
         }
         finally { Cleanup(handler, peerStream, listener); }
     }

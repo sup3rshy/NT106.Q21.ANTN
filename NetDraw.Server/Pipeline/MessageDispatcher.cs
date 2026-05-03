@@ -67,10 +67,18 @@ public class MessageDispatcher
             return;
         }
 
-        if (!SessionTokenExempt.Contains(type) && !TokenMatches(envelope, sender))
+        if (!SessionTokenExempt.Contains(type))
         {
-            await SendTokenRejectAsync(sender, envelope.RoomId, envelope.SenderId);
-            return;
+            if (!TokenMatches(envelope, sender))
+            {
+                await SendTokenRejectAsync(sender, envelope.RoomId, envelope.SenderId);
+                return;
+            }
+            if (!string.Equals(envelope.SenderId, sender.UserId, StringComparison.Ordinal))
+            {
+                await SendTokenRejectAsync(sender, envelope.RoomId, envelope.SenderId);
+                return;
+            }
         }
 
         var handler = _handlers.FirstOrDefault(h => h.CanHandle(type));
@@ -87,12 +95,12 @@ public class MessageDispatcher
     private static bool TokenMatches(MessageEnvelope.Envelope envelope, ClientHandler sender)
     {
         var expected = sender.SessionTokenBytes;
-        var presented = Base64UrlEncoding.TryDecode(envelope.SessionToken);
+        if (expected is null) return false;
 
+        var presented = Base64UrlEncoding.TryDecode(envelope.SessionToken);
         // Length check guards FixedTimeEquals which throws on mismatched-length spans.
         // Length is not secret so the early-out does not leak side-channel signal.
-        if (expected is null || presented is null || presented.Length != expected.Length)
-            return false;
+        if (presented is null || presented.Length != expected.Length) return false;
 
         return CryptographicOperations.FixedTimeEquals(presented, expected);
     }
