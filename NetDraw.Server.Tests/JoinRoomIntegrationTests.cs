@@ -18,8 +18,6 @@ public class JoinRoomIntegrationTests
     [Fact(Timeout = 5000)]
     public async Task JoinRoom_RoundTrip_ReturnsRoomJoinedWithJoiningUser()
     {
-        int port = GetEphemeralPort();
-
         var clientRegistry = new ClientRegistry();
         var roomService = new RoomService();
         var rateLimiter = new TokenBucketRateLimiter(capacity: 200, refillPerSec: 50);
@@ -27,7 +25,9 @@ public class JoinRoomIntegrationTests
         var dispatcher = new MessageDispatcher(rateLimiter, loggerFactory.CreateLogger<MessageDispatcher>());
         dispatcher.Register(new RoomHandler(roomService, clientRegistry));
 
-        var server = new DrawServer(port, dispatcher, clientRegistry, roomService, rateLimiter, loggerFactory);
+        var server = new DrawServer(0, dispatcher, clientRegistry, roomService, rateLimiter, loggerFactory);
+        server.Bind();
+        int port = server.BoundPort;
         var serverTask = Task.Run(server.StartAsync);
 
         using var tcp = new TcpClient();
@@ -61,15 +61,6 @@ public class JoinRoomIntegrationTests
         // serverTask runs an infinite accept-loop; xunit tears down the process at suite exit.
         // Awaiting it would deadlock the test, so we leave it as a fire-and-forget.
         _ = serverTask;
-    }
-
-    private static int GetEphemeralPort()
-    {
-        var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        int port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        return port;
     }
 
     private static async Task ConnectWithRetryAsync(TcpClient client, int port, TimeSpan timeout)
