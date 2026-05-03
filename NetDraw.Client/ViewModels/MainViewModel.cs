@@ -65,6 +65,10 @@ public class MainViewModel : ViewModelBase
         {
             IsConnected = false;
             StatusText = reason;
+            if (!Network.LastDisconnectWasUserInitiated && !string.IsNullOrEmpty(Network.LastSessionToken))
+            {
+                _ = Task.Run(AttemptReconnectAsync);
+            }
         });
 
         // Pre-populate from cache so the dropdown isn't empty on launch — beacons may be 2s away.
@@ -127,6 +131,35 @@ public class MainViewModel : ViewModelBase
         }
     }
 
+    private async Task AttemptReconnectAsync()
+    {
+        var token = Network.LastSessionToken;
+        if (string.IsNullOrEmpty(token)) return;
+        // Exponential backoff: 1s, 2s, 4s. 3 attempts is the reconnect budget; after
+        // that the user has to click Connect manually. The server's grace window
+        // (default 30s) bounds how long Resume will succeed regardless of our budget.
+        int[] backoffMs = { 1000, 2000, 4000 };
+        for (int attempt = 0; attempt < backoffMs.Length; attempt++)
+        {
+            await Task.Delay(backoffMs[attempt]);
+            if (Network.LastDisconnectWasUserInitiated) return;
+
+            await Application.Current.Dispatcher.InvokeAsync(() => StatusText = $"Đang kết nối lại... ({attempt + 1}/{backoffMs.Length})");
+            bool ok = await Network.ConnectAsync(ServerHost, ServerPort);
+            if (!ok) continue;
+
+            var resumeMsg = NetMessage<ResumePayload>.Create(
+                MessageType.Resume, Network.ClientId, UserName, RoomId,
+                new ResumePayload { Token = token });
+            await Network.SendAsync(resumeMsg);
+            // ResumeAccepted (success) or Error{AUTH_RESUME_FAILED} (fall back to JoinRoom)
+            // is handled by ProcessMessage. Either way, this attempt is over.
+            return;
+        }
+
+        await Application.Current.Dispatcher.InvokeAsync(() => StatusText = "Không kết nối lại được. Hãy bấm Kết nối.");
+    }
+
     private async Task JoinRoomAsync(string roomId)
     {
         if (!IsConnected) return;
@@ -173,18 +206,26 @@ public class MainViewModel : ViewModelBase
         switch (type)
         {
             case MessageType.RoomJoined:
+            case MessageType.ResumeAccepted:
                 var joined = MessageEnvelope.DeserializePayload<RoomJoinedPayload>(payload);
                 if (joined != null)
                 {
                     if (!string.IsNullOrEmpty(joined.SessionToken))
                         Network.SessionToken = joined.SessionToken;
 
-                    _events.Publish(new AppendChatEvent($"[Hệ thống] Bạn đã vào phòng '{joined.Room.RoomName}'", true));
+                    var sysMsg = type == MessageType.ResumeAccepted
+                        ? $"[Hệ thống] Đã kết nối lại vào phòng '{joined.Room.RoomName}'"
+                        : $"[Hệ thống] Bạn đã vào phòng '{joined.Room.RoomName}'";
+                    _events.Publish(new AppendChatEvent(sysMsg, true));
                     _events.Publish(new UserListUpdatedEvent(joined.Users));
-                    // Sync self-color from the server-assigned UserInfo
                     var me = joined.Users.FirstOrDefault(u => u.UserId == Canvas.UserId);
                     if (me != null) Canvas.UserColor = me.Color;
                     Canvas.HandleSnapshot(joined.History);
+                    if (type == MessageType.ResumeAccepted)
+                    {
+                        IsConnected = true;
+                        StatusText = $"Đã kết nối ({ServerHost}:{ServerPort})";
+                    }
                 }
                 break;
 
@@ -289,7 +330,17 @@ public class MainViewModel : ViewModelBase
 
             case MessageType.Error:
                 var error = MessageEnvelope.DeserializePayload<ErrorPayload>(payload);
-                if (error != null) _events.Publish(new AppendChatEvent($"[Lỗi] {error.Message}", true));
+                if (error != null)
+                {
+                    _events.Publish(new AppendChatEvent($"[Lỗi] {error.Message}", true));
+                    if (error.Code == ErrorCodes.AuthResumeFailed)
+                    {
+                        // Server's grace already expired or token unknown — drop the cached
+                        // resume credential and fall through to a fresh JoinRoom on the same TCP.
+                        Network.SessionToken = string.Empty;
+                        _ = Application.Current.Dispatcher.InvokeAsync(async () => await JoinRoomAsync(RoomId));
+                    }
+                }
                 break;
         }
     }
