@@ -94,7 +94,7 @@ public class WpfCanvasRenderer : ICanvasRenderer
     /// the strokes' boundaries — without this the curve "swings" past the first/last
     /// click. The geometry is frozen for the WPF render thread.
     /// </summary>
-    private static StreamGeometry BuildSmoothGeometry(IList<NetDraw.Shared.Models.Point> pts)
+    private static StreamGeometry BuildSmoothGeometry(IList<NetDraw.Shared.Models.PointData> pts)
     {
         var geometry = new StreamGeometry();
         using (var ctx = geometry.Open())
@@ -136,29 +136,9 @@ public class WpfCanvasRenderer : ICanvasRenderer
             };
         }
 
-        // Smooth pen stroke using Catmull-Rom -> cubic Bezier conversion
-        var pts = action.Points;
-        var geometry = new StreamGeometry();
-        using (var ctx = geometry.Open())
-        {
-            ctx.BeginFigure(new Point(pts[0].X, pts[0].Y), isFilled: false, isClosed: false);
-            for (int i = 0; i < pts.Count - 1; i++)
-            {
-                var p0 = i == 0 ? pts[0] : pts[i - 1];
-                var p1 = pts[i];
-                var p2 = pts[i + 1];
-                var p3 = i + 2 < pts.Count ? pts[i + 2] : pts[i + 1];
-
-                var cp1 = new Point(p1.X + (p2.X - p0.X) / 6.0, p1.Y + (p2.Y - p0.Y) / 6.0);
-                var cp2 = new Point(p2.X - (p3.X - p1.X) / 6.0, p2.Y - (p3.Y - p1.Y) / 6.0);
-                ctx.BezierTo(cp1, cp2, new Point(p2.X, p2.Y), isStroked: true, isSmoothJoin: true);
-            }
-        }
-        geometry.Freeze();
-
         return new System.Windows.Shapes.Path
         {
-            Data = geometry,
+            Data = BuildSmoothGeometry(action.Points),
             Stroke = BrushFromHex(action.Color),
             StrokeThickness = action.StrokeWidth,
             StrokeLineJoin = PenLineJoin.Round,
@@ -210,27 +190,9 @@ public class WpfCanvasRenderer : ICanvasRenderer
             };
         }
 
-        var pts = action.Points;
-        var geometry = new StreamGeometry();
-        using (var ctx = geometry.Open())
-        {
-            ctx.BeginFigure(new Point(pts[0].X, pts[0].Y), isFilled: false, isClosed: false);
-            for (int i = 0; i < pts.Count - 1; i++)
-            {
-                var p0 = i == 0 ? pts[0] : pts[i - 1];
-                var p1 = pts[i];
-                var p2 = pts[i + 1];
-                var p3 = i + 2 < pts.Count ? pts[i + 2] : pts[i + 1];
-                var cp1 = new Point(p1.X + (p2.X - p0.X) / 6.0, p1.Y + (p2.Y - p0.Y) / 6.0);
-                var cp2 = new Point(p2.X - (p3.X - p1.X) / 6.0, p2.Y - (p3.Y - p1.Y) / 6.0);
-                ctx.BezierTo(cp1, cp2, new Point(p2.X, p2.Y), isStroked: true, isSmoothJoin: true);
-            }
-        }
-        geometry.Freeze();
-
         return new System.Windows.Shapes.Path
         {
-            Data = geometry,
+            Data = BuildSmoothGeometry(action.Points),
             Stroke = brush,
             StrokeThickness = thick,
             StrokeLineJoin = PenLineJoin.Round,

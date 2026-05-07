@@ -89,8 +89,8 @@ public static class NdrawFile
             var actionsEntry = archive.GetEntry(ActionsEntry)
                 ?? throw new InvalidDataException("Missing actions.json");
 
+            // Manifest is tiny — read as string. Actions can be huge — stream-deserialize.
             var manifestJson = ReadEntry(manifestEntry, MaxManifestBytes);
-            var actionsJson = ReadEntry(actionsEntry, MaxActionsBytes);
 
             NdrawManifest? manifest;
             try
@@ -111,10 +111,13 @@ public static class NdrawFile
             if (manifest.Version > CurrentVersion)
                 throw new InvalidDataException($"Unsupported .ndraw version: {manifest.Version}");
 
+            // Stream the actions array directly from the zip stream into a
+            // List<DrawActionBase>. Avoids materialising the entire JSON as a string
+            // (an N MiB save would otherwise allocate ~3× N: bytes → string → JObject).
             List<DrawActionBase>? actions;
             try
             {
-                actions = JsonConvert.DeserializeObject<List<DrawActionBase>>(actionsJson, ActionSerializerSettings);
+                actions = ReadActionsStreaming(actionsEntry, MaxActionsBytes);
             }
             catch (JsonException ex)
             {
@@ -143,6 +146,28 @@ public static class NdrawFile
         using var entryStream = entry.Open();
         using var writer = new StreamWriter(entryStream, Utf8NoBom);
         writer.Write(contents);
+    }
+
+    /// <summary>
+    /// Stream-deserialize <c>actions.json</c> (a JSON array of <see cref="DrawActionBase"/>)
+    /// directly from the zip's decompression stream. The bounded stream wrapper still enforces
+    /// the zip-bomb cap; <see cref="JsonTextReader"/> never materialises the whole document.
+    /// Returns null if the JSON literal was <c>null</c> — caller distinguishes that from an
+    /// empty array (<c>[]</c>) and throws an InvalidDataException with the right message.
+    /// </summary>
+    private static List<DrawActionBase>? ReadActionsStreaming(ZipArchiveEntry entry, long maxBytes)
+    {
+        if (entry.Length > maxBytes)
+            throw new InvalidDataException(
+                $"Zip entry '{entry.FullName}' advertises {entry.Length} bytes; limit is {maxBytes}");
+
+        using var entryStream = entry.Open();
+        using var bounded = new BoundedReadStream(entryStream, maxBytes, entry.FullName);
+        using var reader = new StreamReader(bounded, Utf8NoBom);
+        using var jr = new JsonTextReader(reader);
+
+        var serializer = JsonSerializer.Create(ActionSerializerSettings);
+        return serializer.Deserialize<List<DrawActionBase>>(jr);
     }
 
     private static string ReadEntry(ZipArchiveEntry entry, long maxBytes)

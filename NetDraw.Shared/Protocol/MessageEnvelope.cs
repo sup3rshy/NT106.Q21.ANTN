@@ -72,11 +72,15 @@ public static class MessageEnvelope
 
             var typeToken = jObject["type"];
             if (typeToken is null)
+            {
+                System.Diagnostics.Debug.WriteLine("[MessageEnvelope.Parse] missing 'type' field");
                 return null;
+            }
 
             if (!Enum.TryParse<MessageType>(typeToken.Value<string>(), ignoreCase: false, out var type)
                 && !Enum.TryParse<MessageType>(typeToken.Value<int>().ToString(), out type))
             {
+                System.Diagnostics.Debug.WriteLine($"[MessageEnvelope.Parse] unknown 'type' value: {typeToken}");
                 return null;
             }
 
@@ -90,8 +94,12 @@ public static class MessageEnvelope
 
             return new Envelope(type, senderId, senderName, roomId, timestamp, rawPayload, version, sessionToken);
         }
-        catch
+        catch (Exception ex)
         {
+            // Don't crash the read loop on a malformed line — but don't swallow silently either.
+            // Truncate the snippet so a 1 MiB line doesn't blow up the debug pane.
+            var snippet = json.Length > 200 ? json.Substring(0, 200) + "…" : json;
+            System.Diagnostics.Debug.WriteLine($"[MessageEnvelope.Parse] {ex.GetType().Name}: {ex.Message} | json={snippet}");
             return null;
         }
     }
