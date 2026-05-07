@@ -46,20 +46,27 @@ public class DrawHandler : IMessageHandler
                 break;
 
             case MessageType.Undo:
-                var room = _roomService.GetRoom(roomId);
-                room?.RemoveLastActionByUser(senderId);
-                var snapshot = NetMessage<SnapshotPayload>.Create(
-                    MessageType.CanvasSnapshot, "server", "Server", roomId,
-                    new SnapshotPayload { Actions = room?.GetHistory() ?? new() });
-                await _roomService.BroadcastToRoomAsync(roomId, snapshot);
+                // Send a small DeleteObject diff instead of re-broadcasting the entire
+                // history snapshot. With MaxHistory=5000 a snapshot can be several MB
+                // of JSON × N peers per Undo click — that scaled badly. The client
+                // already knows how to apply DeleteObject to remove a stroke locally.
+                var undoRoom = _roomService.GetRoom(roomId);
+                var removed = undoRoom?.RemoveLastActionByUser(senderId);
+                if (removed == null) return;
+                var undoMsg = NetMessage<DeleteObjectPayload>.Create(
+                    MessageType.DeleteObject, senderId, sender.UserName, roomId,
+                    new DeleteObjectPayload { ActionId = removed.Id });
+                await _roomService.BroadcastToRoomAsync(roomId, undoMsg);
                 break;
 
             case MessageType.Redo:
                 var redoPayload = MessageEnvelope.DeserializePayload<DrawPayload>(payload);
                 if (redoPayload?.Action == null) return;
                 _roomService.GetRoom(roomId)?.AddAction(redoPayload.Action);
+                // Exclude sender so the originating client doesn't double-apply: it has
+                // already restored the action locally before sending Redo.
                 var redoMsg = NetMessage<DrawPayload>.Create(MessageType.Redo, senderId, sender.UserName, roomId, redoPayload);
-                await _roomService.BroadcastToRoomAsync(roomId, redoMsg);
+                await _roomService.BroadcastToRoomAsync(roomId, redoMsg, exclude: sender);
                 break;
         }
     }

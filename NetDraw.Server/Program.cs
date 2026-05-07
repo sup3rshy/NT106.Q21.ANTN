@@ -7,9 +7,16 @@ using NetDraw.Server.Services;
 
 int port = args.Length > 0 && int.TryParse(args[0], out var p) ? p : 5000;
 
-// Claude API key: args[1] > env var
-string? apiKey = (args.Length > 1 ? args[1] : null)
-                 ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
+// Claude API key: env var only.
+//
+// Previously we accepted args[1] as an alternative source. That was unsafe: on Linux/macOS
+// `ps aux` exposes the full argv to every other user on the host, and on Windows the
+// argv shows in Process Explorer / WMI. Dropping the argv form entirely; users must use
+// ANTHROPIC_API_KEY (or the legacy CLAUDE_API_KEY).
+if (args.Length > 1)
+    Console.Error.WriteLine("[Startup] Warning: extra positional args are ignored. " +
+                            "Set ANTHROPIC_API_KEY in the environment instead of passing it on the command line.");
+string? apiKey = Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY")
                  ?? Environment.GetEnvironmentVariable("CLAUDE_API_KEY");
 
 // Locate NetDraw.McpServer.csproj by walking up from the server binary directory.
@@ -65,12 +72,12 @@ _ = Task.Run(async () =>
 });
 
 // Pipeline
-var dispatcher = new MessageDispatcher(rateLimiter, loggerFactory.CreateLogger<MessageDispatcher>());
+var dispatcher = new MessageDispatcher(rateLimiter, roomService, loggerFactory.CreateLogger<MessageDispatcher>());
 dispatcher.Register(new RoomHandler(roomService, clientRegistry, sessionTokenStore));
 dispatcher.Register(new DrawHandler(roomService));
 dispatcher.Register(new ObjectHandler(roomService));
 dispatcher.Register(new PresenceHandler(roomService));
-dispatcher.Register(new ChatHandler(roomService));
+dispatcher.Register(new ChatHandler(roomService, loggerFactory.CreateLogger<ChatHandler>()));
 dispatcher.Register(new AiHandler(roomService, mcpClient, fallbackParser, loggerFactory.CreateLogger<AiHandler>(), maxPromptBytes: maxAiPromptBytes));
 
 // Health endpoint for the load balancer; port via HEALTH_PORT to avoid changing the positional CLI.

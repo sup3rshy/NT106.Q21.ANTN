@@ -12,6 +12,14 @@ namespace NetDraw.Client.Drawing;
 
 public class WpfCanvasRenderer : ICanvasRenderer
 {
+    // O(1) lookup of canvas children by action id. Replaces a linear scan over
+    // canvas.Children that was O(n) per Undo / Move / Delete — n could be 5000+ on
+    // a busy canvas, so undo loops were quadratic. The renderer publishes the index
+    // here whenever it returns a UIElement; callers update the canvas, and we clean
+    // up via RemoveAction / Clear. Stale entries (element removed externally) are
+    // tolerated: RemoveAction still falls back to the linear scan.
+    private readonly System.Collections.Generic.Dictionary<string, UIElement> _byId = new();
+
     public UIElement? Render(DrawActionBase action)
     {
         UIElement? element = action switch
@@ -33,13 +41,30 @@ public class WpfCanvasRenderer : ICanvasRenderer
 
         if (element != null && action.Opacity < 1.0)
             element.Opacity = action.Opacity;
+        if (element != null && !string.IsNullOrEmpty(action.Id))
+            _byId[action.Id] = element;
         return element;
     }
 
-    public void Clear(Canvas canvas) => canvas.Children.Clear();
+    public void Clear(Canvas canvas)
+    {
+        canvas.Children.Clear();
+        _byId.Clear();
+    }
 
     public void RemoveAction(Canvas canvas, string actionId)
     {
+        // Fast path: O(1) via the id index.
+        if (_byId.TryGetValue(actionId, out var hit))
+        {
+            _byId.Remove(actionId);
+            // Element may already have been detached (e.g. by a snapshot replay clearing
+            // the canvas); Children.Remove is a no-op on absent items so this is safe.
+            canvas.Children.Remove(hit);
+            return;
+        }
+        // Fallback linear scan — only reached if the index was not populated for this
+        // id (stale snapshot, external mutation). Keeps existing behaviour for those edges.
         for (int i = canvas.Children.Count - 1; i >= 0; i--)
         {
             if (canvas.Children[i] is FrameworkElement fe && fe.Tag as string == actionId)
@@ -56,6 +81,40 @@ public class WpfCanvasRenderer : ICanvasRenderer
         DashStyleModel.Dotted => new DoubleCollection { 1, 3 },
         _ => null
     };
+
+    /// <summary>
+    /// Build a smoothed <see cref="StreamGeometry"/> through the supplied points using
+    /// Catmull-Rom → cubic Bezier conversion. The control points are positioned so the
+    /// curve passes through every input point with C1 continuity:
+    ///
+    ///   B1 = P1 + (P2 − P0) / 6
+    ///   B2 = P2 − (P3 − P1) / 6
+    ///
+    /// Phantom endpoints (P0 = P1 at the start, P3 = P2 at the end) zero the tangent at
+    /// the strokes' boundaries — without this the curve "swings" past the first/last
+    /// click. The geometry is frozen for the WPF render thread.
+    /// </summary>
+    private static StreamGeometry BuildSmoothGeometry(IList<NetDraw.Shared.Models.Point> pts)
+    {
+        var geometry = new StreamGeometry();
+        using (var ctx = geometry.Open())
+        {
+            ctx.BeginFigure(new Point(pts[0].X, pts[0].Y), isFilled: false, isClosed: false);
+            for (int i = 0; i < pts.Count - 1; i++)
+            {
+                var p0 = i == 0 ? pts[0] : pts[i - 1];
+                var p1 = pts[i];
+                var p2 = pts[i + 1];
+                var p3 = i + 2 < pts.Count ? pts[i + 2] : pts[i + 1];
+
+                var cp1 = new Point(p1.X + (p2.X - p0.X) / 6.0, p1.Y + (p2.Y - p0.Y) / 6.0);
+                var cp2 = new Point(p2.X - (p3.X - p1.X) / 6.0, p2.Y - (p3.Y - p1.Y) / 6.0);
+                ctx.BezierTo(cp1, cp2, new Point(p2.X, p2.Y), isStroked: true, isSmoothJoin: true);
+            }
+        }
+        geometry.Freeze();
+        return geometry;
+    }
 
     private static UIElement? RenderPen(PenAction action)
     {

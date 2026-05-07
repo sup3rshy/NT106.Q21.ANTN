@@ -27,16 +27,37 @@ public class MessageDispatcher
         MessageType.Resume,
     };
 
+    // Messages that touch a specific room must use the connection's pinned room, not
+    // an arbitrary roomId from the JSON envelope. Without this, a user in room X can
+    // forge `Draw{roomId=Y}` and the DrawHandler would happily fan it out to room Y.
+    // Token validation alone does not catch this — the token is connection-bound, not
+    // room-bound. RoomList / Resume / JoinRoom / LeaveRoom are exempt because they
+    // either operate before pinning or change pinning.
+    private static readonly HashSet<MessageType> RoomPinExempt = new()
+    {
+        MessageType.JoinRoom,
+        MessageType.LeaveRoom,
+        MessageType.Resume,
+        MessageType.RoomList,
+    };
+
     private static readonly long RejectReplyCooldownTicks = Stopwatch.Frequency; // 1 s
 
     private readonly List<IMessageHandler> _handlers = new();
     private readonly IRateLimiter _rateLimiter;
+    private readonly IRoomService? _roomService;
     private readonly ILogger<MessageDispatcher> _logger;
     private readonly ConcurrentDictionary<ClientHandler, long> _lastRejectReply = new();
 
     public MessageDispatcher(IRateLimiter rateLimiter, ILogger<MessageDispatcher> logger)
+        : this(rateLimiter, null, logger)
+    {
+    }
+
+    public MessageDispatcher(IRateLimiter rateLimiter, IRoomService? roomService, ILogger<MessageDispatcher> logger)
     {
         _rateLimiter = rateLimiter;
+        _roomService = roomService;
         _logger = logger;
     }
 
@@ -84,6 +105,19 @@ public class MessageDispatcher
             }
         }
 
+        // Room-pinning: every per-room message must target the room this connection
+        // joined. Otherwise a member of room X could spoof Draw{roomId=Y} and the
+        // handlers, which trust envelope.RoomId for fan-out, would broadcast into Y.
+        if (_roomService != null && !RoomPinExempt.Contains(type))
+        {
+            var pinnedRoom = _roomService.GetRoomIdForClient(sender);
+            if (pinnedRoom == null || !string.Equals(pinnedRoom, envelope.RoomId, StringComparison.Ordinal))
+            {
+                await SendRoomMismatchAsync(sender, envelope.RoomId, envelope.SenderId);
+                return;
+            }
+        }
+
         var handler = _handlers.FirstOrDefault(h => h.CanHandle(type));
         if (handler != null)
         {
@@ -106,6 +140,25 @@ public class MessageDispatcher
         if (presented is null || presented.Length != expected.Length) return false;
 
         return CryptographicOperations.FixedTimeEquals(presented, expected);
+    }
+
+    private async Task SendRoomMismatchAsync(ClientHandler sender, string roomId, string senderId)
+    {
+        var now = Stopwatch.GetTimestamp();
+        var prev = _lastRejectReply.GetOrAdd(sender, 0L);
+        if (now - prev < RejectReplyCooldownTicks) return;
+        _lastRejectReply[sender] = now;
+
+        var err = NetMessage<ErrorPayload>.Create(MessageType.Error, "server", "Server", roomId,
+            new ErrorPayload { Message = "envelope.roomId does not match the room this connection joined", Code = ErrorCodes.AuthTokenMismatch });
+        try
+        {
+            await sender.SendAsync(err);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning("Failed to send room-mismatch reply to {SenderId}: {Error}", senderId, ex.Message);
+        }
     }
 
     private async Task SendTokenRejectAsync(ClientHandler sender, string roomId, string senderId)

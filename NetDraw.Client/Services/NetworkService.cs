@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net.Sockets;
 using System.Text;
 using NetDraw.Shared.Models;
@@ -9,13 +10,16 @@ namespace NetDraw.Client.Services;
 
 public class NetworkService : INetworkService
 {
+    private const int MaxJsonLineLength = 1_048_576;
+
     private TcpClient? _client;
     private NetworkStream? _stream;
     private bool _isConnected;
-    private readonly StringBuilder _buffer = new();
-    // Decoder (not Encoding.GetString) — keeps state across reads so a UTF-8 sequence
-    // split between two ReadAsync chunks decodes correctly.
-    private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
+    // Byte-mode buffer: needed once the server starts emitting binary frames (magic 0xFE).
+    // Feeding raw bytes (which can include 0xFE / 0x00) into a UTF-8 Decoder corrupts the
+    // decoder state for every subsequent JSON line. Keep raw bytes until a frame boundary
+    // is in hand, then decode UTF-8 only on a complete {...} JSON slice.
+    private readonly ByteFrameBuffer _buffer = new();
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private bool _userInitiatedDisconnect;
 
@@ -40,7 +44,6 @@ public class NetworkService : INetworkService
     {
         try
         {
-            _decoder.Reset();
             _buffer.Clear();
             // Token lifetime is bounded to one TCP connection; never carry one across reconnects.
             // LastSessionToken survives so the caller can attempt Resume; SessionToken does not.
@@ -67,21 +70,84 @@ public class NetworkService : INetworkService
     {
         try
         {
-            byte[] buffer = new byte[8192];
-            char[] charBuffer = new char[8192];
+            byte[] readBuffer = new byte[8192];
             while (_isConnected && _client?.Connected == true)
             {
-                int bytesRead = await _stream!.ReadAsync(buffer, 0, buffer.Length);
+                int bytesRead = await _stream!.ReadAsync(readBuffer, 0, readBuffer.Length);
                 if (bytesRead == 0) break;
 
-                int charsDecoded = _decoder.GetChars(buffer, 0, bytesRead, charBuffer, 0);
-                _buffer.Append(charBuffer, 0, charsDecoded);
-                string data = _buffer.ToString();
-                int idx;
-                while ((idx = data.IndexOf('\n')) >= 0)
+                _buffer.Append(readBuffer.AsSpan(0, bytesRead));
+                if (!ProcessBuffer()) break;
+            }
+        }
+        catch (Exception ex)
+        {
+            // Don't swallow silently — debugging socket errors without any log is painful.
+            // Stay non-fatal: the finally block emits the user-visible Disconnected event.
+            Debug.WriteLine($"[NetworkService] read loop ended: {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            CloseSocket();
+            Disconnected?.Invoke(_userInitiatedDisconnect ? "Đã ngắt kết nối" : "Mất kết nối");
+        }
+    }
+
+    /// <summary>
+    /// Per-frame state machine matching the server's ClientHandler.ProcessBufferAsync. Peeks
+    /// the first byte at every frame boundary to decide between newline-delimited JSON (0x7B)
+    /// and a length-prefixed binary frame (0xFE). Returns false if the loop should terminate.
+    /// </summary>
+    private bool ProcessBuffer()
+    {
+        int pos = 0;
+        while (pos < _buffer.Length)
+        {
+            byte first = _buffer[pos];
+
+            if (first == MessageEnvelope.BinaryMagic)
+            {
+                if (_buffer.Length - pos < 6) break;                                // need full header
+                int payloadLength = (_buffer[pos + 3] << 16) | (_buffer[pos + 4] << 8) | _buffer[pos + 5];
+                if (payloadLength > MessageEnvelope.MaxBinaryPayloadLength)
                 {
-                    string json = data[..idx];
-                    data = data[(idx + 1)..];
+                    Debug.WriteLine($"[NetworkService] binary frame length {payloadLength} exceeds cap; closing");
+                    _buffer.Consume(pos);
+                    return false;
+                }
+                int total = 6 + payloadLength;
+                if (_buffer.Length - pos < total) break;                            // need body
+
+                // Copy out before invoking the handler — handler is synchronous so this is just
+                // defensive in case it grows the buffer (it doesn't today).
+                byte[] frameCopy = _buffer.AsSpan(pos, total).ToArray();
+                var envelope = MessageEnvelope.ParseBinary(frameCopy);
+                if (envelope != null)
+                    MessageReceived?.Invoke(envelope.Type, envelope.SenderId, envelope.SenderName, envelope.RoomId, envelope.RawPayload);
+                pos += total;
+                continue;
+            }
+
+            if (first == (byte)'{')
+            {
+                int nl = _buffer.IndexOf((byte)'\n', pos);
+                if (nl < 0)
+                {
+                    if (_buffer.Length - pos > MaxJsonLineLength)
+                    {
+                        Debug.WriteLine($"[NetworkService] JSON line exceeded {MaxJsonLineLength} bytes without newline; closing");
+                        _buffer.Consume(pos);
+                        return false;
+                    }
+                    break;                                                           // wait for more bytes
+                }
+                int lineLen = nl - pos;
+                if (lineLen > 0)
+                {
+                    // Decode UTF-8 only on a complete {...} slice — multi-byte sequences are
+                    // already framed by the surrounding `{` and `\n`, so no decoder state is
+                    // needed across reads.
+                    string json = Encoding.UTF8.GetString(_buffer.AsSpan(pos, lineLen));
                     if (!string.IsNullOrWhiteSpace(json))
                     {
                         var envelope = MessageEnvelope.Parse(json);
@@ -89,19 +155,25 @@ public class NetworkService : INetworkService
                             MessageReceived?.Invoke(envelope.Type, envelope.SenderId, envelope.SenderName, envelope.RoomId, envelope.RawPayload);
                     }
                 }
-                _buffer.Clear();
-                _buffer.Append(data);
+                pos = nl + 1;
+                continue;
             }
+
+            // Skip whitespace (CR/LF/TAB/SP) between frames.
+            if (first == 0x0D || first == 0x0A || first == 0x09 || first == 0x20)
+            {
+                pos++;
+                continue;
+            }
+
+            // Unrecognised framing byte — drop the rest of the buffer and bail.
+            Debug.WriteLine($"[NetworkService] unrecognised framing byte 0x{first:x2}; closing");
+            _buffer.Consume(pos);
+            return false;
         }
-        catch
-        {
-            // Swallow read errors; finally fires the single Disconnected notification.
-        }
-        finally
-        {
-            CloseSocket();
-            Disconnected?.Invoke(_userInitiatedDisconnect ? "Đã ngắt kết nối" : "Mất kết nối");
-        }
+
+        _buffer.Consume(pos);
+        return true;
     }
 
     public async Task SendAsync<T>(NetMessage<T> message) where T : IPayload

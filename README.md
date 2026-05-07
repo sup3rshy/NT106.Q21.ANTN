@@ -27,14 +27,59 @@ NetDraw là ứng dụng vẽ cộng tác real-time qua mạng TCP, cho phép nh
 
 ## Công nghệ sử dụng
 
+### Runtime & ngôn ngữ
 | Thành phần | Công nghệ |
 |---|---|
-| Ngôn ngữ | C# (.NET 8 LTS) |
-| Giao diện | WPF (Windows Presentation Foundation) |
-| Giao tiếp mạng | TCP Socket (`System.Net.Sockets`) |
-| Giao thức | JSON messages + newline delimiter |
-| Serialization | Newtonsoft.Json |
-| AI Integration | MCP Server + Claude API (tùy chọn) |
+| Ngôn ngữ | C# 12 trên **.NET 8 LTS** |
+| Server / McpServer | `net8.0` (Console) |
+| Client | `net8.0-windows` (WPF, MVVM thuần) |
+
+### Giao tiếp mạng
+| Lớp | Công nghệ / Cơ chế |
+|---|---|
+| Transport | TCP Socket (`System.Net.Sockets.TcpListener` / `TcpClient`) |
+| Framing | **Lai (dual-format)**: NDJSON (`{...}\n`) **và** binary frame (magic `0xFE`, length-prefixed) — chọn theo byte đầu tiên |
+| Binary envelope | 6 B header + 48 B envelope cố định (timestamp i64 BE, senderId u32, roomHash xxhash32, sessionToken 32 B raw) |
+| LAN discovery | UDP **multicast** 239.255.77.12:5099, multi-NIC bind (xử lý Hyper-V/WSL virtual switch) |
+| Health endpoint | HTTP listener (mặc định `:5050/health`) cho load balancer |
+| Resume / reconnect | Session token 32 B CSPRNG + grace window (mặc định 30 s) cho phép TCP đứt rồi reconnect không "rớt user" |
+
+### Giao thức ứng dụng
+| Lớp | Công nghệ |
+|---|---|
+| Serialization | **Newtonsoft.Json 13.0.4** (custom `DrawActionConverter` polymorphic theo `"type"`) |
+| Envelope | 2 pha parse — envelope-only trước, payload typed sau (`MessageEnvelope.DeserializePayload<T>`) |
+| Authn per-message | `CryptographicOperations.FixedTimeEquals` (chống timing attack) trên session token |
+| Rate limiting | Token bucket per-client (capacity 200, refill 50/s, dùng `Stopwatch.GetTimestamp()` monotonic) |
+| Authz per-message | Room-pinning (envelope.RoomId phải khớp room đã JoinRoom) + ownership check trên Move/Delete |
+| File save format | `.ndraw` = ZIP archive (manifest.json + actions.json), atomic write `tmp → File.Move`, có zip-bomb cap |
+
+### AI / MCP
+| Lớp | Công nghệ |
+|---|---|
+| MCP runtime | **Anthropic.SDK 5.10.0** + **ModelContextProtocol 1.1.0** + **Microsoft.Extensions.AI 10.3.0** |
+| Transport MCP | `StdioClientTransport` — server **spawn `NetDraw.McpServer` làm child process** qua **stdio JSON-RPC 2.0** (không phải TCP :5001 như doc cũ ghi) |
+| Tool dispatch | `[McpServerTool]` attribute + reflection → schema tự sinh; `UseFunctionInvocation()` tự loop `tool_use → tool_result` cho Claude |
+| Model | `claude-sonnet-4-5-20250929`, max 16k tokens output |
+| Fallback | `FallbackAiParser` (rule-based) khi không có API key hoặc MCP init fail — pipeline AI **không bao giờ block** message loop nhờ `Task.Run` fire-and-forget + per-room `SemaphoreSlim(1,1)` có timeout 2 phút |
+| Prompt budget | Length cap 4 KiB UTF-8 + per-user cooldown 5 s + scrub regex (sk-ant-*, gh*_*, base64url ≥40) trước khi log |
+
+### UI
+| Lớp | Công nghệ |
+|---|---|
+| Pattern | MVVM + `EventAggregator` (pub/sub cross-VM) |
+| Rendering pen | **Catmull-Rom → cubic Bezier** (`B1 = P1 + (P2−P0)/6`, `B2 = P2 − (P3−P1)/6`) qua `StreamGeometry.Freeze()` |
+| Cursor remote | `DoubleAnimation` 90 ms + `CubicEase` (cố tình **không dùng `DropShadowEffect`** vì rasterize/frame → giật) |
+| File I/O | Bounded streaming (`BoundedReadStream`) bảo vệ zip-bomb |
+| Logging | `Microsoft.Extensions.Logging` 9.0.0 + `Microsoft.Extensions.Hosting` 8.0.1 |
+
+### Build & Test
+| Loại | Công nghệ |
+|---|---|
+| Solution | `NetDraw.slnx` (XML solution, .NET 8) |
+| Test framework | xUnit (`NetDraw.Shared.Tests`, `NetDraw.Server.Tests` — tổng 78 tests passing) |
+| Wireshark dissector | `tools/wireshark/netdraw.lua` — parse cả NDJSON và binary frame |
+| Design docs | `docs/design/` — binary-frame, session-token, mcp-v2, udp-cursor-channel, lan-discovery, load-balancer, tls-in-house |
 
 ## Cấu trúc Solution
 
@@ -54,9 +99,10 @@ NetDraw/
 │       └── RoomInfo.cs             # Room, UserInfo, Cursor, DrawingFile
 │
 ├── NetDraw.Server/                 # TCP Server (port 5000)
-│   ├── Program.cs                  # Entry point + DI wiring
+│   ├── Program.cs                  # Entry point + DI wiring (env var only API key)
 │   ├── DrawServer.cs               # Listener, accept loop, MCP bootstrap
-│   ├── ClientHandler.cs            # Mỗi client 1 instance — đọc/ghi NDJSON frames
+│   ├── ByteFrameBuffer.cs          # Buffer byte-mode (giữ raw bytes đến frame boundary)
+│   ├── ClientHandler.cs            # Mỗi client 1 instance — dual-format framer (NDJSON + binary 0xFE)
 │   ├── Room.cs                     # State phòng: user list, history, undo stack
 │   ├── Ai/
 │   │   └── FallbackAiParser.cs     # Parser rule-based khi MCP offline
@@ -71,9 +117,13 @@ NetDraw/
 │   │   ├── ChatHandler.cs          # ChatMessage
 │   │   └── AiHandler.cs            # AiCommand — fire-and-forget sang MCP (không block loop)
 │   └── Services/
-│       ├── IRoomService / RoomService     # Quản lý nhiều phòng + broadcast
+│       ├── IRoomService / RoomService     # Quản lý nhiều phòng + broadcast (strip token trước fan-out)
 │       ├── IClientRegistry / ClientRegistry
-│       └── IMcpClient / McpClient         # TCP client đến MCP (auto-reconnect, timeout, semaphore)
+│       ├── SessionTokenStore             # Issue/Claim 32-byte token, orphan grace window
+│       ├── TokenBucketRateLimiter        # Per-client bucket, race-safe Forget()
+│       ├── BeaconService                 # UDP multicast LAN discovery (multi-NIC)
+│       ├── HttpHealthServer              # Endpoint /health cho load balancer
+│       └── IMcpClient / McpClient         # MCP qua stdio JSON-RPC (Anthropic.SDK + ModelContextProtocol)
 │
 ├── NetDraw.Client/                 # WPF Client (MVVM)
 │   ├── App.xaml/cs                 # Composition root + DI manual
@@ -101,11 +151,16 @@ NetDraw/
 │   ├── TextInputDialog.xaml/cs         # Dialog nhập text
 │   └── InputDialog.xaml/cs             # Dialog nhập chung
 │
-└── NetDraw.McpServer/              # MCP Server AI (port 5001)
-    ├── Program.cs                  # args: [port] [apiKey]
-    ├── McpDrawServer.cs            # TCP server, gọi Claude API, timeout 90 s, xử lý concurrent
-    └── EnhancedAiParser.cs         # Parser AI rule-based (fallback khi không có API key)
+└── NetDraw.McpServer/              # MCP tool host (child process qua stdio JSON-RPC)
+    ├── Program.cs                  # `Host.CreateApplicationBuilder().AddMcpServer().WithStdioServerTransport().WithToolsFromAssembly()`
+    │                               # Log đẩy hoàn toàn về stderr — stdout reserved cho RPC frames
+    └── DrawingTools.cs             # 60+ static methods `[McpServerTool]` — schema sinh tự động qua reflection
+                                    # (shape primitives, arc/bezier/polygon, text, composite cat/house/tree…)
 ```
+
+> **Lưu ý**: `NetDraw.McpServer` **không** phải là TCP server độc lập trên port 5001 (như doc cũ mô tả).
+> `NetDraw.Server` spawn nó làm **child process** và giao tiếp qua **stdin/stdout** theo chuẩn MCP JSON-RPC 2.0
+> — vì thế bạn không cần chạy nó bằng tay; chỉ cần set `ANTHROPIC_API_KEY` là server tự khởi động child process.
 
 ## Giao thức truyền thông
 
@@ -232,16 +287,15 @@ cd D:\NT106.Q21.ANTN
 dotnet build
 ```
 
-### Bước 2: Chạy (mở 3 terminal riêng)
+### Bước 2: Chạy
+
+Chỉ cần **2 process**: Server và Client. McpServer được Server tự spawn làm child process qua stdio.
 
 ```bash
-# Terminal 1: MCP Server (khởi động trước)
-dotnet run --project NetDraw.McpServer
-
-# Terminal 2: Draw Server
+# Terminal 1: Draw Server (tự spawn McpServer nếu có ANTHROPIC_API_KEY)
 dotnet run --project NetDraw.Server
 
-# Terminal 3: Client (mở nhiều terminal để test multi-user)
+# Terminal 2..N: Client (mở nhiều terminal để test multi-user)
 dotnet run --project NetDraw.Client
 ```
 
@@ -254,18 +308,27 @@ dotnet run --project NetDraw.Client
 
 ### Tùy chọn: AI qua Claude API
 
-Để sử dụng AI nâng cao thay vì rule-based parser:
+Để sử dụng AI nâng cao thay vì rule-based parser, set **environment variable** trước khi chạy `NetDraw.Server`:
 
 ```bash
-# Cách 1: env var
-set CLAUDE_API_KEY=sk-ant-xxxxx
-dotnet run --project NetDraw.McpServer
+# Windows (CMD)
+set ANTHROPIC_API_KEY=sk-ant-xxxxx
+dotnet run --project NetDraw.Server
 
-# Cách 2: truyền qua args (port + key)
-dotnet run --project NetDraw.McpServer -- 5001 sk-ant-xxxxx
+# Windows (PowerShell)
+$env:ANTHROPIC_API_KEY = "sk-ant-xxxxx"
+dotnet run --project NetDraw.Server
+
+# Linux / macOS
+ANTHROPIC_API_KEY=sk-ant-xxxxx dotnet run --project NetDraw.Server
 ```
 
-Server sẽ in `Mode: AI-powered (Claude API)` khi khởi động thành công. Nếu không có key thì chạy `Mode: Rule-based`.
+Tên env var legacy `CLAUDE_API_KEY` vẫn được nhận để tương thích.
+
+> **Bảo mật**: KHÔNG truyền API key qua command-line argument (`dotnet run -- 5000 sk-ant-...`).
+> Trên Linux/macOS `ps aux` xuất full argv ra mọi user trên máy → leak key. Server đã từ chối nhận key qua argv kể từ bản hardening.
+
+Server sẽ log `Claude API key: present` khi khởi động thành công. Nếu không có key thì log `(none — fallback parser only)` và dùng `FallbackAiParser` rule-based.
 
 ### Độ bền của pipeline AI
 

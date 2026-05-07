@@ -16,6 +16,12 @@ public static class NdrawFile
     private const string ManifestEntry = "manifest.json";
     private const string ActionsEntry = "actions.json";
 
+    // Zip-bomb guard: a hand-crafted .ndraw can advertise a 1 MB compressed entry that
+    // expands to multiple GB. Cap each entry's *decompressed* size and reject anything
+    // bigger than the limits below — these are an order of magnitude above any real save.
+    private const long MaxManifestBytes = 64 * 1024;          // 64 KiB — manifest is tiny
+    private const long MaxActionsBytes = 256L * 1024 * 1024;  // 256 MiB — generous for a 5000-action canvas
+
     private static readonly UTF8Encoding Utf8NoBom = new(encoderShouldEmitUTF8Identifier: false);
 
     private static readonly JsonSerializerSettings ActionSerializerSettings = new()
@@ -83,8 +89,8 @@ public static class NdrawFile
             var actionsEntry = archive.GetEntry(ActionsEntry)
                 ?? throw new InvalidDataException("Missing actions.json");
 
-            var manifestJson = ReadEntry(manifestEntry);
-            var actionsJson = ReadEntry(actionsEntry);
+            var manifestJson = ReadEntry(manifestEntry, MaxManifestBytes);
+            var actionsJson = ReadEntry(actionsEntry, MaxActionsBytes);
 
             NdrawManifest? manifest;
             try
@@ -139,11 +145,59 @@ public static class NdrawFile
         writer.Write(contents);
     }
 
-    private static string ReadEntry(ZipArchiveEntry entry)
+    private static string ReadEntry(ZipArchiveEntry entry, long maxBytes)
     {
+        // ZipArchiveEntry.Length is the advertised uncompressed size — a forged entry can
+        // lie. Use it as a cheap pre-flight check, then enforce the same cap by reading
+        // through a bounded stream. Both gates need to fire because a malicious zip can
+        // either lie about Length (cheap reject up-front fails) or stream out forever.
+        if (entry.Length > maxBytes)
+            throw new InvalidDataException(
+                $"Zip entry '{entry.FullName}' advertises {entry.Length} bytes; limit is {maxBytes}");
+
         using var entryStream = entry.Open();
-        using var reader = new StreamReader(entryStream, Utf8NoBom);
+        using var bounded = new BoundedReadStream(entryStream, maxBytes, entry.FullName);
+        using var reader = new StreamReader(bounded, Utf8NoBom);
         return reader.ReadToEnd();
+    }
+
+    /// <summary>
+    /// Throws <see cref="InvalidDataException"/> if more than <c>maxBytes</c> are read.
+    /// Defends against a zip whose Length header understates the real decompressed size.
+    /// </summary>
+    private sealed class BoundedReadStream : Stream
+    {
+        private readonly Stream _inner;
+        private readonly long _maxBytes;
+        private readonly string _entryName;
+        private long _read;
+
+        public BoundedReadStream(Stream inner, long maxBytes, string entryName)
+        {
+            _inner = inner;
+            _maxBytes = maxBytes;
+            _entryName = entryName;
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => _read; set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            int n = _inner.Read(buffer, offset, count);
+            _read += n;
+            if (_read > _maxBytes)
+                throw new InvalidDataException(
+                    $"Zip entry '{_entryName}' exceeded {_maxBytes}-byte decompression cap (zip-bomb guard)");
+            return n;
+        }
     }
 }
 
